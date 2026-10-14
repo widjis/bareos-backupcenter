@@ -1,0 +1,39 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": [
+    "src"
+  ],
+  "locale": "en-GB",
+  "canonicalMap": "docs/UX-CONTRACT.md",
+  "requiredCapabilities": [
+    "Scrollbar",
+    "Table Selection",
+    "Select/Listbox",
+    "Date",
+    "Form",
+    "CRUD"
+  ],
+  "commands": {
+    "unit": ".venv/bin/python -m pytest backend/tests",
+    "e2e": "npm run test:e2e"
+  },
+  "requiredCommands": [
+    "unit",
+    "e2e"
+  ],
+  "evidence": {
+    "failurePaths": "tests/monitoring.spec.ts",
+    "operationFlows": "tests/operations.spec.ts",
+    "inventory": "tests/inventory.spec.ts",
+    "identity": "tests/auth.spec.ts",
+    "recovery": "tests/recovery.spec.ts",
+    "onboardingPreview": "tests/onboarding.spec.ts",
+    "reports": "tests/reports.spec.ts",
+    "draftPolicies": "tests/policies.spec.ts",
+    "observedAlerts": "tests/alerts.spec.ts"
+  },
+  "ownership": {
+    "Select/Listbox": "native",
+    "Date": "native"
+  }
+}
