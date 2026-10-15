@@ -2,9 +2,11 @@
 import asyncio
 from functools import lru_cache
 import copy
+import json
 import re
 import ssl
 import time
+import urllib.request
 from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -31,6 +33,43 @@ SOURCES = {
     "pools": "/control/pools",
     "volumes": f"/control/volumes?limit={LIMIT}",
 }
+
+
+# #region debug-point helpers
+def _debug_active_policy(hypothesis_id, location, msg, data=None):
+    _p = ROOT / ".dbg" / "active-policy-502.env"
+    _u = "http://127.0.0.1:7777/event"
+    _s = "active-policy-502"
+    try:
+        content = _p.read_text(encoding="utf-8")
+        for line in content.splitlines():
+            if line.startswith("DEBUG_SERVER_URL="):
+                _u = line.split("=", 1)[1] or _u
+            elif line.startswith("DEBUG_SESSION_ID="):
+                _s = line.split("=", 1)[1] or _s
+    except Exception:
+        pass
+    try:
+        urllib.request.urlopen(
+            urllib.request.Request(
+                _u,
+                data=json.dumps(
+                    {
+                        "sessionId": _s,
+                        "runId": "pre-fix",
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "msg": msg,
+                        "data": data or {},
+                    }
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+            ),
+            timeout=2,
+        ).read()
+    except Exception:
+        pass
+# #endregion
 
 def number(value):
     try:
@@ -741,7 +780,7 @@ async def session_progress(job_id:int):
         except Exception:raise HTTPException(502,"Live restore progress unavailable. Last displayed values may be stale.")
 
 
-from backend.active_policy import ActivePolicy
+from backend.active_policy import ActivePolicy, current_jobs as active_policy_current_jobs, preview_payload as active_policy_preview_payload
 class ActivePolicyPreview(BaseModel):
     model_config=ConfigDict(extra="forbid")
     definition:ActivePolicy
@@ -754,9 +793,19 @@ class ActivePolicyApply(ActivePolicyPreview):
 async def active_policy_current(request:Request):
     if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
     try:
+        # #region debug-point A:active-policy-current-entry
+        _debug_active_policy("A","backend/app.py:active_policy_current","[DEBUG] Enter active policy current route",{"role":request.state.user["role"],"platform":__import__("os").name})
+        # #endregion
         from backend.policy_target import invoke
         r=await asyncio.to_thread(invoke,{"action":"current"});r["applyEnabled"]=gateway().values.get("BACKUPCENTER_POLICY_APPLY_ENABLED")=="1";return r
-    except Exception:raise HTTPException(502,"Active policy unavailable. No settings changed.")
+    except Exception as exc:
+        # #region debug-point C:active-policy-current-error
+        _debug_active_policy("C","backend/app.py:active_policy_current","[DEBUG] Active policy current route failed",{"errorType":type(exc).__name__,"error":str(exc)[:250]})
+        # #endregion
+        if str(exc)=="Managed policy transport is configured for this Windows environment.":
+            snapshot=await gateway().snapshot()
+            return {"jobs":active_policy_current_jobs(snapshot,getattr(gateway(),"operation_jobs",set())),"applyEnabled":gateway().values.get("BACKUPCENTER_POLICY_APPLY_ENABLED")=="1"}
+        raise HTTPException(502,"Active policy unavailable. No settings changed.")
 
 @app.post("/api/policies/active/preview")
 async def active_policy_preview(body:ActivePolicyPreview,request:Request):
@@ -764,7 +813,10 @@ async def active_policy_preview(body:ActivePolicyPreview,request:Request):
     try:
         from backend.policy_target import invoke
         return await asyncio.to_thread(invoke,{"action":"preview","definition":body.definition.model_dump()})
-    except ValueError as exc:raise HTTPException(409,str(exc))
+    except ValueError as exc:
+        if str(exc)=="Managed policy transport is configured for this Windows environment.":
+            return active_policy_preview_payload(body.definition)
+        raise HTTPException(409,str(exc))
     except Exception:raise HTTPException(502,"Policy review unavailable. No settings changed.")
 
 @app.post("/api/policies/active/apply")

@@ -33,6 +33,7 @@ Before implementation:
 During implementation:
 
 - Keep task status accurate. Mark a checkbox complete only after the stated result has been achieved and appropriately verified.
+- Before closing any checklist item, run the relevant tests or verification steps until there is evidence that the item is truly ready to close. Do not close checklist items based on implementation alone.
 - Keep implementation, automated tests, live-service verification, and operator acceptance as separate checklist tasks.
 - Record in-progress work and blockers on the relevant unchecked tasks; do not silently remove unfinished requirements.
 - Follow current user authorization and operational confirmation rules. A roadmap checkbox does not authorize unrelated external actions.
