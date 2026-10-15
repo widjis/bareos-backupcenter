@@ -56,8 +56,10 @@ function initial() {
 export function VMwareInventory({
   storages,
   onQueued,
+  liveUuids = [],
 }: {
   storages: { name: string; mediaType: string; enabled: boolean }[];
+  liveUuids?: string[];
   onQueued: (operation: {
     id: string;
     idempotency_key: string;
@@ -392,7 +394,19 @@ export function VMwareInventory({
         </button>
         <button
           className="button"
-          disabled
+          disabled={
+            count !== 1 ||
+            !Object.values(selected).every(
+              (vm) =>
+                vm.instanceUuid &&
+                liveUuids.includes(vm.instanceUuid) &&
+                vm.association === "Unassigned",
+            ) ||
+            data?.state !== "connected" ||
+            busy ||
+            identity?.role !== "Admin"
+          }
+          onClick={() => setPreviewIds(Object.keys(selected))}
           aria-describedby="provisioning-reason"
         >
           Live Add to backup
@@ -421,10 +435,10 @@ export function VMwareInventory({
       )}
       <p className="inventory-caption" id="provisioning-reason">
         Preview supports up to 25 selected VMs per batch for Admins. Live Add to
-        backup remains disabled; the onboarding dialog now stages a durable
-        dry-run rehearsal only. Candidate matches use current names and folders;
-        they are not confirmed identity assignments. Visibility is limited to
-        the configured VMware account.
+        backup is available only for a server-approved pilot VM. Other
+        selections remain dry-run rehearsals. Candidate matches use current
+        names and folders; they are not confirmed identity assignments.
+        Visibility is limited to the configured VMware account.
       </p>
     </section>
   );

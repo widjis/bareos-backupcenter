@@ -4,7 +4,7 @@
 
 Run an enabled backup job from Jobs, or cancel an active backup session from its detail drawer. The original Bareos server executes the operation using its current configuration. Restore, provisioning, configuration editing, and arbitrary console commands remain disabled.
 
-This is a single local operator application bound to loopback. The actor label `local-operator` is not an authenticated enterprise identity. Remote hosting and multiple users require an application authentication/authorization design before enabling controls.
+This is a loopback-only application with local authenticated accounts. Admin and Backup Operator may run/cancel jobs in the explicit server-side scope; Viewer may only monitor. Remote hosting and per-resource enterprise authorization remain separate release requirements.
 
 ## User workflow
 
@@ -16,7 +16,7 @@ This is a single local operator application bound to loopback. The actor label `
 
 ## Backend boundary
 
-Only POST `/api/operations` is enabled for mutations. It requires the local application Origin, a custom confirmation header, a UUID idempotency key, a supported kind/target, and an explicit confirmation flag. Unknown fields are rejected. This header/origin contract blocks cross-origin browser submission; it is not user authentication.
+POST `/api/operations` is the Director job-dispatch boundary; separately typed identity, draft-policy, alert and rehearsal routes do not send backup commands. It requires the local application Origin, a custom confirmation header, a UUID idempotency key, a supported kind/target, and an explicit confirmation flag. Unknown fields are rejected. This header/origin contract blocks cross-origin browser submission; it is not user authentication.
 
 The backend revalidates the target against fresh Director data, and the worker revalidates immediately before sending. Run requires an enabled Backup job and no active session for that job in a fresh job-filtered Catalog read. This check cannot atomically prevent a concurrent request made outside Backup Center; Director concurrency settings remain authoritative. Because the installed API interpolates console arguments, this release supports job names containing only letters, numbers, dot, hyphen, and underscore. Cancel requires a positive canonical JobId for an active backup session. Only configured defaults are used; client, FileSet, Pool, level, storage, plugin arguments, and raw commands cannot be overridden from the browser.
 
@@ -59,12 +59,18 @@ No browser credential, Director token, or raw upstream error is returned in thes
 
 ## Verification boundary
 
-Backend tests simulate job dispatch, duplicate requests, unsafe targets, finished sessions, database failure, HTTP 500, timeout, and cancellation races. Browser tests intercept every Run/Cancel submission and simulate acceptance or transport loss. The actual PostgreSQL uniqueness constraint was verified inside a rolled-back transaction. The real operation journal was checked empty before and after testing; no real backup or cancellation was initiated by implementation testing.
+Backend tests simulate job dispatch, duplicate requests, unsafe targets, finished sessions, database failure, HTTP 500, timeout, and cancellation races. Browser tests intercept every Run/Cancel submission and simulate acceptance or transport loss. The actual PostgreSQL uniqueness constraint was verified inside a rolled-back transaction. Earlier tests preserved an empty operation journal. On 2026-10-15 the operator authorized activation: app-dispatched InstallSmokeTest JobId 18 succeeded (42 bytes, zero errors), and app cancellation of delayed local JobId 19 was confirmed Canceled (zero bytes). The temporary test delay was removed and its original job configuration restored.
 
-API source/contract and reads were inspected live. Successful live Run/Cancel side effects remain unverified until the operator explicitly chooses a job in the application. No exactly-once external execution guarantee is claimed.
+API source/contract and reads were inspected live. Live Run/Cancel was verified using noncritical local jobs. No VMware production backup was manually dispatched during acceptance; operator acceptance of the six-VM workflow remains separate. No exactly-once external execution guarantee is claimed.
 
 ## Latest isolated export and actor controls
 
 RECOVERY.md defines the fixed isolated disk-export mode. Migration 005 stores and constrains destination/mode/overwrite. Export is Admin-only and remains disabled pending server scope/target-helper permissions and operator-selected test approval. Request/delivery retry behavior follows the same durable journal rules. Its simulated acceptance is not live restore proof.
 
 Dispatching claims lock/read the verified actor row within the journal transaction, coordinating with role/disable edits. Worker interruption was verified with killed/restarted child processes, real PostgreSQL and mocked Director I/O in a separate connection namespace. Recovery produced Unknown and no resend; the original journal stayed empty. Account/session actions, draft policies and alert acknowledgement are separately typed metadata routes and do not dispatch Bareos commands.
+
+## Activated six-VM operation scope — 2026-10-15
+
+`BACKUPCENTER_OPERATION_DISPATCH_ENABLED=1` activates Run/Cancel. `BACKUPCENTER_OPERATION_JOBS` lists the six canonical VMware job names; an empty explicit list denies every job. Gateway defaults to those same six names when the setting is absent. Both API preparation and worker preflight enforce the scope; Cancel reads the current session name before authorizing it. `capabilities.operationJobs` drives the canonical table/drawer action controls. The temporary InstallSmokeTest exception used for acceptance has been removed. Restore dispatch is still independently disabled.
+
+Verification: 28 targeted backend/auth tests, four isolated browser tests, TypeScript checking, and a live-data browser check of enabled VM actions, excluded test jobs, and confirmation focus. The live browser check opened and dismissed confirmation without sending a production backup. Request journaling, no resend on unknown outcome, role recheck, configured defaults and existing pre-job storage guards remain intact.

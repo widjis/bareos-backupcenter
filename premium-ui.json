@@ -30,7 +30,9 @@
     "onboardingPreview": "tests/onboarding.spec.ts",
     "reports": "tests/reports.spec.ts",
     "draftPolicies": "tests/policies.spec.ts",
-    "observedAlerts": "tests/alerts.spec.ts"
+    "observedAlerts": "tests/alerts.spec.ts",
+    "vmwareRestoreReview": "tests/vmware-restore-plan.spec.ts",
+    "restoreProgress": "tests/restore-progress.spec.ts"
   },
   "ownership": {
     "Select/Listbox": "native",

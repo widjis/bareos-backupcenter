@@ -3,8 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { actionHeaders, useIdentity } from "./auth";
 import { apiFetch } from "@/lib/api";
+import { VMwareRestorePlan } from "./vmware-restore-plan";
+import { DiscardDraftDialog } from "./draft-guard";
 import { DataTable } from "./table-controls";
 type Recovery = {
+  restoreTests?: {operationId:string; restoreJobId:number; vmName:string; execution:string; isolationVerified:boolean; bootVerified:boolean; finalPower:string}[];
+  restoreTestEvidenceUnavailable?: boolean;
   dispatchEnabled: boolean;
   sourceJobId: number;
   jobIds: number[];
@@ -33,6 +37,8 @@ export function RecoveryInspection({
   onQueued: (operation: Record<string, unknown>) => void;
 }) {
   const identity = useIdentity();
+  const [vmDirty, setVmDirty] = useState(false), [discard, setDiscard] = useState(false);
+  function closeRecovery() { if (vmDirty) setDiscard(true); else onClose(); }
   const confirmation = useRef<HTMLDialogElement>(null),
     goBack = useRef<HTMLButtonElement>(null),
     start = useRef<HTMLButtonElement>(null),
@@ -98,7 +104,7 @@ export function RecoveryInspection({
       aria-labelledby="recovery-title"
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        closeRecovery();
       }}
     >
       <div className="recovery-content">
@@ -111,7 +117,7 @@ export function RecoveryInspection({
             className="icon-button"
             ref={closeButton}
             aria-label="Close recovery inspection"
-            onClick={onClose}
+            onClick={closeRecovery}
           >
             <X size={18} />
           </button>
@@ -134,7 +140,7 @@ export function RecoveryInspection({
                 {data.engineResolved
                   ? "Director resolved the dependency chain."
                   : "Dependency chain unavailable."}{" "}
-                Media readability and restored contents have not been verified.
+                {data.restoreTests?.some(t=>t.isolationVerified) ? "Recorded restore-test results are shown below. Guest file and application verification remain separate." : "Media readability and restored contents have not been verified."}
               </span>
             </div>
             <h3>Required backup chain</h3>
@@ -151,6 +157,11 @@ export function RecoveryInspection({
               setPage={setChainPage}
               empty="No dependency chain available"
             />
+            {!!data.restoreTests?.length && <section aria-labelledby="restore-test-evidence-title"><h3 id="restore-test-evidence-title">Restore tests for this recovery point</h3>
+              <ul>{data.restoreTests.map(t=><li key={t.operationId}><strong>{t.vmName}</strong> · Restore JobId {t.restoreJobId} · {t.execution} · Isolation: {t.isolationVerified?"Verified":"Not verified"} · OS boot: {t.bootVerified?"Verified":"Not tested"} · Final power: {t.finalPower}</li>)}</ul>
+              <p>OS boot verification does not verify every guest file or application.</p>
+            </section>}
+            {data.restoreTestEvidenceUnavailable && <p role="status">Some restore-test evidence is unavailable. Check the operation journal and server receipts.</p>}
             <h3>VMware recovery items</h3>
             <p>
               These are virtual disk/firmware backup items, not a browser for
@@ -181,6 +192,7 @@ export function RecoveryInspection({
                 </div>
               </div>
             )}
+            {identity?.role === "Admin" && jobId && <VMwareRestorePlan key={jobId} jobId={jobId} onDirty={setVmDirty} onQueued={(operation)=>{onQueued(operation);onClose();}} />}
             <h3>Available recovery direction</h3>
             <p>
               Export VMware disks to a new isolated directory on the backup
@@ -217,6 +229,7 @@ export function RecoveryInspection({
           </>
         )}
       </div>
+      <DiscardDraftDialog pending={discard ? {view: "backups", query: "", page: 1} : null} onBack={() => setDiscard(false)} onDiscard={() => { setDiscard(false); onClose(); }} description="Your unsaved VMware restore destination will be cleared when you close recovery inspection." />
       <dialog
         ref={confirmation}
         className="restore-confirm"

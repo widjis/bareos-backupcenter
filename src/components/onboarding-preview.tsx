@@ -17,6 +17,7 @@ type Policy = {
   };
 };
 type Preview = {
+  mode?: "live" | "rehearsal";
   applyEnabled: boolean;
   changes: {
     inventoryId: string;
@@ -88,9 +89,11 @@ export function OnboardingPreview({
     [policyId, setPolicyId] = useState("");
   const selectedPolicy = policies.find((p) => p.id === policyId);
   const abort = useRef<AbortController | null>(null);
+  const applyKey = useRef<string | null>(null);
   useEffect(() => {
     if (!ids) return;
     setData(null);
+    applyKey.current = null;
     setPolicyId("");
     void apiFetch("/api/policies")
       .then(async (r) => {
@@ -115,7 +118,7 @@ export function OnboardingPreview({
       aria-labelledby="onboarding-title"
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        if (!busy) onClose();
       }}
     >
       <div className="recovery-content">
@@ -127,6 +130,7 @@ export function OnboardingPreview({
           <button
             className="icon-button"
             ref={closeButton}
+            disabled={busy}
             onClick={onClose}
             aria-label="Close onboarding preview"
           >
@@ -136,7 +140,8 @@ export function OnboardingPreview({
         <div className="info-note">
           <span>
             This preview creates no jobs or schedules. Review the proposed
-            resources and pending provisioning requirements.
+            resources before choosing a live Apply or a clearly marked
+            rehearsal.
           </span>
         </div>
         <h3>Repository and baseline</h3>
@@ -172,6 +177,7 @@ export function OnboardingPreview({
                     ? x.detail
                     : "Preview validation failed.",
                 );
+              applyKey.current = null;
               setData(x);
             } catch (e) {
               if (!abort.current.signal.aborted)
@@ -219,7 +225,10 @@ export function OnboardingPreview({
             Proposed retention:{" "}
             {selectedPolicy?.definition.retention_days || 30} days · Maximum
             volumes: {selectedPolicy?.definition.maximum_volumes || 6} ·
-            Schedule: disabled until reviewed
+            Schedule:{" "}
+            {data?.mode === "live"
+              ? "Full 1/15; Incremental other days; 21:30 UTC+8"
+              : "disabled until reviewed"}
           </p>
           <button className="button" disabled={busy || !storage}>
             {busy ? "Generating…" : "Generate preview"}
@@ -292,7 +301,8 @@ export function OnboardingPreview({
                       policy_id: policyId || null,
                       policy_revision:
                         policies.find((p) => p.id === policyId)?.revision || 0,
-                      idempotency_key: crypto.randomUUID(),
+                      idempotency_key: (applyKey.current ||=
+                        crypto.randomUUID()),
                       confirmed: true,
                     }),
                   });
@@ -317,12 +327,16 @@ export function OnboardingPreview({
                 }
               }}
             >
-              {busy ? "Queuing…" : "Stage dry-run apply"}
+              {busy
+                ? "Queuing…"
+                : data.mode === "live"
+                  ? `Enable backup for ${data.changes[0]?.name}`
+                  : "Stage dry-run apply"}
             </button>
             <p id="apply-unavailable">
-              This stages a durable rehearsal only. Generated local temporary
-              fixtures are validated through the operation journal; existing
-              Bareos resources remain unchanged and no Director reload occurs.
+              {data.mode === "live"
+                ? "This applies the reviewed configuration for the approved test VM, creates its own repository folder and schedule, and preserves its power state. First backup remains a separate Run now action."
+                : "This stages a durable rehearsal only. Generated local temporary fixtures are validated through the operation journal; existing Bareos resources remain unchanged and no Director reload occurs."}
             </p>
           </>
         )}

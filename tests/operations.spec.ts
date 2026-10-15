@@ -215,3 +215,25 @@ test("Explicit retry after browser transport loss reuses the same key", async ({
   expect(sent[1].idempotency_key).toBe(sent[0].idempotency_key);
   await expect(page.getByText("Outcome unknown; not resent.")).toBeVisible();
 });
+
+test("Jobs outside the enabled operation scope remain disabled", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.route("**/api/snapshot*", (route) =>
+    route.fulfill({
+      json: {
+        ...snapshot,
+        capabilities: { controls: true, operationJobs: [] },
+      },
+    }),
+  );
+  await page.route("**/api/operations*", (route) =>
+    route.fulfill({ json: { operations: [] } }),
+  );
+  await page.goto("/?view=jobs");
+  await expect(
+    page.getByRole("button", { name: "Run VMware-safe now" }),
+  ).toBeDisabled();
+  await expect(page.getByText("Outside enabled operation scope")).toBeVisible();
+});

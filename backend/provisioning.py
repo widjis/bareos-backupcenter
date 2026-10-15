@@ -44,11 +44,25 @@ def script_review(changes, baseline_jobs):
     }
 
 
-def preview(vms, storage, policy=None, baseline_jobs=None):
+def preview(vms, storage, policy=None, baseline_jobs=None, live_uuids=()):
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}",storage.get("name", "")):
         raise ValueError("Select a safely named existing Storage resource.")
     if storage.get("mediaType")!="SMBFile" or not storage.get("enabled"):
         raise ValueError("This preview requires the existing enabled shared SMBFile resource.")
+    if live_uuids and any(vm.get("instanceUuid") in live_uuids for vm in vms):
+        if len(vms)!=1 or vms[0].get("instanceUuid") not in live_uuids or policy:
+            raise ValueError("Live pilot onboarding requires one approved VM and the existing fixed policy.")
+        vm=vms[0]
+        if vm.get("association")!="Unassigned" or vm.get("template"):
+            raise ValueError("The approved VM is already assigned or is a template.")
+        from integration.onboarding_contract import build
+        bundle=build(vm["instanceUuid"],vm["name"])
+        change={"inventoryId":vm["id"],"instanceUuid":vm["instanceUuid"],"name":vm["name"],"job":bundle["job"],"fileset":bundle["fileset"],"pool":bundle["pool"],"storage":bundle["storage"],"configuration":"\n".join(bundle["files"].values()),"state":"Review before live apply"}
+        review=script_review([change],baseline_jobs or [])
+        for addition in review["additions"]:
+            addition["prepareAllowlist"]["entry"]=vm["name"]
+            addition["retentionAllowlist"].update(entry=vm["name"],script="retire-vm-chains.py",action="Add VM label and explicit Pool/Job SQL mappings to the chain-retention planner.")
+        return {"mode":"live","simulationOnly":False,"changes":[change],"applyEnabled":True,"configurationDigest":bundle["digest"],"policy":{"name":"Existing fixed VMware policy","retentionDays":30,"maximumVolumes":6,"schedule":"Full on 1/15; Incremental other days; 21:30 UTC+8; serial"},"policyId":None,"policyRevision":0,"blockers":["Creates the approved VM folder and root-owned resources after syntax validation.","Preserves VM power state. No first backup is started by Apply; use Run now afterwards."],"sharedImpact":"Creates a dedicated VM folder/device/pool on the existing SMB mount. Extends root-owned preparation/retention mappings; never changes their permissions.","scriptReview":review}
     retention=policy["definition"]["retention_days"] if policy else 30
     maximum=policy["definition"]["maximum_volumes"] if policy else 6
     if not 1<=len(vms)<=25:raise ValueError("Select between one and 25 VMs.")

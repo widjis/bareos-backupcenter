@@ -88,3 +88,8 @@ The four navigation tokens map to `--nav`, `--nav-text`, `--nav-muted`, and `--n
 ## Inventory, identity and recovery surfaces
 
 VMware uses the approved tree/table layout and the same table/search primitives. Its table owns a bounded 600px/65vh scroll area with a sticky header; sibling proxy/repository panels remain in natural document flow. Explicit selection and the review summary stay separate from backup evidence. Native select/date popups follow the maintained UX decision; application field styling uses the central surface, border and typography tokens. Identity login, account review, recovery inspection and onboarding preview reuse the palette and native modal semantics. Report coverage and unavailable apply/restore gates remain visible in text.
+
+
+Direct VMware restore destination review extends the existing recovery dialog with the canonical two-column policy-fields layout (one column at narrow widths), auth-field inputs and shared discard confirmation. Preserve current typography/colors; no new visual tokens. Review and execution remain distinct product states.
+
+The direct VMware review variant now has native live destination selectors, a nested confirmation and a per-recovery-point restore-test evidence section. Runtime colors/layout remain unchanged. Execution warnings, isolation proof and OS-boot proof are shown separately; source scope is visible.

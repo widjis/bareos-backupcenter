@@ -60,7 +60,7 @@ def export_plan(job_id, request_id, user):
     storage=safe_name(storages[0])
     target=str(ROOT/str(request_id))
     # All command tokens are fixed, validated names, canonical numeric IDs, or UUID paths.
-    command=('restore jobid='+','.join(str(x) for x in info['jobIds'])+' client='+client+' restoreclient='+client+' restorejob=RestoreFiles storage='+storage+' where='+target+' replace=never pluginoptions=python:module_name=bareos-fd-vmware:localvmdk=yes comment=backupcenter-'+str(request_id)+' select all done yes')
+    command=('restore jobid='+','.join(str(x) for x in info['jobIds'])+' client='+client+' restoreclient='+client+' fileset='+fileset_name+' restorejob=RestoreFiles storage='+storage+' where='+target+' replace=never pluginoptions=python:module_name=bareos-fd-vmware:localvmdk=yes comment=backupcenter-'+str(request_id)+' select all done yes')
     return {'sourceJobId':job_id,'job':name,'jobIds':info['jobIds'],'destination':target,'overwrite':'Never','mode':'vm-disks-isolated','command':command}
 
 

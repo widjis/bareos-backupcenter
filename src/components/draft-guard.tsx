@@ -29,7 +29,9 @@ export function DiscardDraftDialog({
   pending,
   onBack,
   onDiscard,
+  description = "Your unsaved account, policy or password entries will be cleared when you leave Settings.",
 }: {
+  description?: string;
   pending: NavigationDraft | null;
   onBack: () => void;
   onDiscard: () => void;
@@ -60,8 +62,7 @@ export function DiscardDraftDialog({
       <div className="account-confirm">
         <h2 id="discard-title">Discard unsaved changes?</h2>
         <p>
-          Your unsaved account, policy or password entries will be cleared when
-          you leave Settings.
+          {description}
         </p>
         <div className="dialog-actions">
           <button className="button" ref={back} onClick={onBack}>

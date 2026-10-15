@@ -1,6 +1,6 @@
 # UX Contract
 
-The application runs on loopback for one local operator. Fixed read routes provide monitoring; only confirmed Run/Cancel operation preparation is enabled for mutations. Local authentication and environment-wide roles are implemented. Remote hosting, restore, provisioning and per-resource/multi-site scoping remain outside the accepted release.
+The application runs on loopback for one local operator. Fixed read routes provide monitoring; confirmed Run/Cancel dispatch is activated for the six configured VMware jobs. Local authentication and environment-wide roles are implemented. Remote hosting, restore, provisioning and per-resource/multi-site scoping remain outside the accepted release.
 
 ## Canonical UI Map
 
@@ -67,3 +67,31 @@ PolicySettings owns draft create/edit with explicit freshness/schedule validatio
 AlertJournal owns bounded observed-failure/warning state filtering, session review and Admin acknowledgement. It preserves unknown/stale evaluation and never equates acknowledgement with success. Shared fields/tables are used. Data rows load after snapshot evaluation; no always-on notifications are implemented.
 
 SessionReport's native print action prints only the visible report table page. Range/page, environment, period, observation/generation dates and incomplete coverage remain visible; account forms/navigation are hidden in print media. This is not an all-pages export. CSV is the bounded full report export.
+
+### Explicit operation-job scope
+
+The Jobs table and session drawer use `capabilities.operationJobs` to disable actions outside the activated scope, with explanatory copy in the Jobs table. Backend scope validation remains authoritative before queueing and again before dispatch. Existing canonical confirmation, focus, role, idempotency, durable feedback and Unknown-state contracts apply unchanged. Live local acceptance is documented in OPERATIONS.md; production VM restore/provisioning remains unavailable.
+
+### Controlled live onboarding pilot
+
+The existing OnboardingPreview dialog owns both rehearsal and server-approved live review. The VM table uses `capabilities.onboardingUuids` for the Live Add button; backend/root checks remain authoritative. Review explicitly distinguishes applying resources from starting the first backup, states power preservation and dedicated repository impact, and preserves its request key on transport retry. Close/Escape are blocked during submission. History labels live entries Enable backup and uses Not applicable for the configuration operation JobId. Only a subsequent completed backup supplies backup evidence; live configuration never implies tested recovery.
+
+
+## Direct VMware destination review
+
+VMwareRestorePlan, nested in RecoveryInspection, owns the new-VM destination review variant. Existing auth-field inputs and policy-fields layout preserve the token system. All five destination names are transient form drafts; useUnsavedDraft and the shared DiscardDraftDialog protect navigation/close. Server validation focuses and labels the first invalid field. Editing cancels pending reads and invalidates the previous review; an old response must never replace a newer draft. Only Admin sees/uses this form. POST /api/recovery/vmware/plan is a same-origin authenticated read-only review; it performs typed upstream GETs only.
+
+Power off, disconnected network and Never overwrite are fixed review invariants, not currently executed guarantees. Destination names are manually entered and explicitly unverified. Source UUID compatibility, live target topology/permissions/capacity, network enforcement, durable dispatch and independent boot acceptance remain required before execution. No direct-VM Start action is exposed. Review never invokes a console restore command, because console API mode can submit without a yes token. Review digests summarize source-chain/destination intent only; they are not signed approvals or live target attestations.
+
+
+## Accepted direct VMware restore workflow
+
+The earlier review-only slice is superseded for the root-approved PNET source. VMwareRestorePlan uses NativeSelectField for live dependent datacenter/folder/host/datastore choices; changing a parent clears dependent values and invalidates review. The real same-origin Admin APIs validate target topology, capacity, permission and collisions. Fixed off/no-NIC/Never policy is enforced by the root receipt/plugin at VM creation, not just displayed. Review enables a nested native confirmation with Go back initial focus. Same key/digest/destination survive uncertain delivery; no automatic resend. Submit/worker authorization remains authoritative. RecoveryInspection shows separately recorded execution/isolation/OS-boot proofs for that exact source point; app/guest-file validity is not inferred. Root source scope and single-datastore limitations are explicit. Shared typography/tokens/draft guard remain canonical.
+
+
+## Restore progress panel
+
+RestoreProgress owns the shared submitted/active-restore and session-detail variants. Refresh starts immediately, repeats after 3 seconds, pauses hidden tabs and stops terminal sessions. Preserve final results; label retained data stale on errors and show last-received WITA time. Stage descriptions are derived from native job status/log evidence, not an asserted numeric completion ratio. Catalog counters are explicitly labeled and may update only at completion. No percentage or ETA appears without a verified total. Log tail is collapsed by default with the canonical scroll style. The panel reports native warnings without reclassifying them as success or failure.
+
+
+Restore warning explanations preserve the native status. Only an explicit Warning log mentioning an existing MAC/UUID and generated replacement is classified as identity-change; other Warning entries remain unclassified and require review. Native text remains expandable. A generic terminal “with warnings” summary is not treated as an additional explanatory warning. History/drawer destination names come only from the exact restore JobId's journal record; unmapped jobs keep their native name. The drawer retains the underlying Bareos job name and search includes mapped destination names.

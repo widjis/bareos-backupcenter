@@ -4,7 +4,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from backend import app as module
-from backend.operations import dispatch,reconcile
+from backend.operations import dispatch,reconcile,validate
 
 
 class FakeStore:
@@ -177,3 +177,23 @@ def test_provisioning_rehearsal_completes_without_remote_io():
         assert g.store.revisions[revision_id]["state"]=="Validated"
         assert "no Bareos configuration was loaded" in g.store.rows[op["id"]]["parameters"]["message"]
     asyncio.run(run())
+
+
+def test_run_scope_denial_happens_before_upstream_io():
+    async def scenario():
+        g=FakeGateway();g.operation_jobs=frozenset({'VMware-approved'})
+        async def forbidden(*args,**kwargs):pytest.fail('Out-of-scope Run reached upstream')
+        g.get=forbidden
+        with pytest.raises(ValueError,match='scope'):
+            await validate(g,None,'run','VMware-other')
+    asyncio.run(scenario())
+
+
+def test_cancel_scope_checks_fresh_session_identity():
+    async def scenario():
+        g=FakeGateway();g.operation_jobs=frozenset({'VMware-approved'})
+        with pytest.raises(ValueError,match='scope'):
+            await validate(g,None,'cancel','12')
+        g.operation_jobs=frozenset({'VMware-safe'})
+        await validate(g,None,'cancel','12')
+    asyncio.run(scenario())

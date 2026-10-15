@@ -71,6 +71,7 @@ def test_isolated_export_plan_is_fixed_and_scope_blocks_before_dispatch(monkeypa
     uid=UUID('12345678-1234-1234-1234-123456789abc')
     plan=module.export_plan(1,uid,user)
     assert 'replace=never' in plan['command'] and 'localvmdk=yes' in plan['command']
+    assert ' fileset=safe restorejob=RestoreFiles' in plan['command']
     assert plan['destination'].endswith(str(uid)) and 'select all done yes' in plan['command']
     monkeypatch.setattr(module,'APPROVAL',tmp_path/'absent-scope.json')
     with pytest.raises(HTTPException) as e:module.export_disks(module.ExportRequest(job_id=1,request_id=uid,confirmed=True),user)

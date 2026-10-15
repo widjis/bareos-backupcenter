@@ -98,7 +98,7 @@ def normalize(raw, source_errors):
         backups = [x for x in history if x["type"] == "Backup" and x["status"] in ("Succeeded", "Warning")]
         good = [x for x in backups if x["status"] == "Succeeded"]
         evidence = "Unknown" if "sessions" in source_errors else ("Backup recorded" if good else ("Warning" if backups else "No backup recorded"))
-        workloads.append({"name": vm.group(1) if vm else name, "job": name, "folder": folder.group(1) if folder else "Unknown", "datacenter": dc.group(1) if dc else None, "instanceUuid": uuid.group(1) if uuid else None, "proxy": job["client"], "storage": storage, "schedule": job["schedule"], "evidence": evidence, "latestBackup": good[0] if good else (backups[0] if backups else None), "sessions": history[:12], "backupCount": len(backups), "identityVerified": False, "restoreVerified": False})
+        workloads.append({"name": vm.group(1) if vm else (name.removeprefix("VMware-") if uuid else name), "job": name, "folder": folder.group(1) if folder else "Unknown", "datacenter": dc.group(1) if dc else None, "instanceUuid": uuid.group(1) if uuid else None, "proxy": job["client"], "storage": storage, "schedule": job["schedule"], "evidence": evidence, "latestBackup": good[0] if good else (backups[0] if backups else None), "sessions": history[:12], "backupCount": len(backups), "identityVerified": False, "restoreVerified": False})
     storages = [{"name": x.get("name", ""), "address": x.get("address", ""), "port": number(x.get("port")), "devices": x.get("device", []), "mediaType": x.get("mediatype", ""), "enabled": bool(x.get("enabled")), "concurrency": number(x.get("maximumconcurrentjobs"))} for x in records(raw.get("storages"), "storages")]
     schedules = [{"name": x.get("name", ""), "enabled": bool(x.get("enabled")), "rules": x.get("run", [])} for x in records(raw.get("schedules"), "schedules")]
     pools = [{"name": x.get("name", ""), "volumes": number(x.get("numvols")), "maxVolumes": number(x.get("maxvols")), "retentionDays": number(x.get("volretention")) // 86400} for x in records(raw.get("pools"), "pools")]
@@ -119,6 +119,9 @@ class Gateway:
             self.context.load_verify_locations(cadata=pem)
         self.token = None
         self.operation_dispatch_enabled = str(dotenv_values(ROOT/".env").get("BACKUPCENTER_OPERATION_DISPATCH_ENABLED", "0"))=="1"
+        default_jobs = ",".join("VMware-" + vm for vm in ("MTIMRWZTNA01", "MTIMRWPGSQL01", "MTIMRWNTP02", "MTIMRWNTP01", "MTIMRWKF01", "MTIMRWCNTDEV"))
+        self.onboarding_vm_uuids = frozenset(x.strip() for x in self.values.get("BACKUPCENTER_ONBOARDING_UUIDS", "").split(",") if x.strip()) if self.values.get("BACKUPCENTER_ONBOARDING_ENABLED")=="1" else frozenset()
+        self.operation_jobs = frozenset(name.strip() for name in self.values.get("BACKUPCENTER_OPERATION_JOBS", default_jobs).split(",") if name.strip())
         self.restore_enabled = str(dotenv_values(ROOT/".env").get("BACKUPCENTER_RESTORE_DISPATCH_ENABLED", "0"))=="1"
         self.restore_test_job = dotenv_values(ROOT/".env").get("BACKUPCENTER_RESTORE_TEST_JOB", "")
         self.lock = asyncio.Lock()
@@ -248,7 +251,7 @@ def gateway():
 async def operational_boundary(request, call_next):
     from fastapi.responses import JSONResponse
     from backend import auth
-    allowed_posts={"/api/operations","/api/auth/login","/api/auth/logout","/api/auth/password","/api/users","/api/provisioning/preview","/api/provisioning/apply","/api/policies"}
+    allowed_posts={"/api/operations","/api/auth/login","/api/auth/logout","/api/auth/password","/api/users","/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies"}
     mutation=request.method=="POST" and (request.url.path in allowed_posts or request.url.path.startswith("/api/users/") or (request.url.path.startswith("/api/alerts/") and request.url.path.endswith("/ack")))
     if request.method not in ("GET", "HEAD") and not mutation:
         return JSONResponse({"detail": "This operation is not enabled."}, status_code=405)
@@ -261,7 +264,7 @@ async def operational_boundary(request, call_next):
         request.state.user=user
         if (request.url.path=="/api/users" or request.url.path.startswith("/api/users/")) and user["role"]!="Admin":
             return JSONResponse({"detail":"Administrator permission required."},status_code=403)
-        if (request.url.path in ("/api/provisioning/preview","/api/provisioning/apply","/api/policies") or request.url.path.startswith("/api/alerts/")) and mutation and user["role"]!="Admin":
+        if (request.url.path in ("/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies") or request.url.path.startswith("/api/alerts/")) and mutation and user["role"]!="Admin":
             return JSONResponse({"detail":"Administrator permission required."},status_code=403)
         if request.url.path=="/api/operations" and mutation and user["role"] not in ("Admin","Backup Operator"):
             return JSONResponse({"detail":"Backup operation permission required."},status_code=403)
@@ -282,6 +285,8 @@ async def snapshot(request: Request, refresh: bool = False):
     result=copy.deepcopy(await gateway().snapshot(refresh))
     result["capabilities"]["controls"]=bool(result["capabilities"].get("controls") and request.state.user["role"] in ("Admin","Backup Operator"))
     result["capabilities"]["readOnly"]=not result["capabilities"]["controls"]
+    result["capabilities"]["operationJobs"]=sorted(getattr(gateway(),"operation_jobs",[]))
+    result["capabilities"]["onboardingUuids"]=sorted(getattr(gateway(),"onboarding_vm_uuids",())) if request.state.user["role"]=="Admin" else []
     result["capabilities"]["vmwareInventory"]=True
     result["capabilities"]["provisioningPreview"]=request.state.user["role"]=="Admin"
     result["capabilities"]["provisioningApply"]=request.state.user["role"]=="Admin" and result.get("persistence",{}).get("state")=="connected"
@@ -499,6 +504,16 @@ async def recovery_inspection(job_id: int):
             result=normalize_recovery(chain,files,volumes)
             result["dispatchEnabled"]=bool(g.operation_dispatch_enabled and g.restore_enabled and row.get("name")==g.restore_test_job and not result["blockers"])
             result["modes"][0]["state"]="Isolated export implemented; live acceptance pending"
+            result["restoreTests"]=[]
+            try:
+                attempts=await asyncio.to_thread(g.store.operations)
+                for attempt in [a for a in attempts if a["kind"]=="restore" and a["target"]==str(job_id) and a["parameters"].get("mode")=="vmware-new-vm" and a["state"]=="Completed"][:3]:
+                    from backend.direct_restore_target import invoke
+                    try:
+                        proof=await asyncio.to_thread(invoke,{"action":"status","request_id":str(attempt["idempotency_key"])})
+                        result["restoreTests"].append({"operationId":str(attempt["id"]),"restoreJobId":attempt["job_id"],"vmName":proof["destination"]["vm_name"],"execution":attempt["parameters"].get("sessionStatus","Completed"),"isolationVerified":proof.get("isolationVerified",False),"bootVerified":proof.get("bootVerification",{}).get("bootVerified",False),"finalPower":proof.get("bootVerification",{}).get("finalPower",proof.get("power","Unknown"))})
+                    except Exception:result["restoreTestEvidenceUnavailable"]=True
+            except Exception:result["restoreTestEvidenceUnavailable"]=True
             return result
         except HTTPException:raise
         except Exception:raise HTTPException(502,"Recovery inspection unavailable. Check Director access and the typed recovery gateway extension.")
@@ -535,7 +550,7 @@ async def provisioning_preview(body: ProvisioningPreviewRequest):
         policy=next((p for p in await asyncio.to_thread(gateway().store.policies) if str(p['id'])==str(body.policy_id)),None)
         if not policy or policy['state']!='Draft' or policy['revision']!=body.policy_revision:raise HTTPException(409,"Policy revision changed. Reload the current policy before previewing.")
         if policy['definition']['storage']!=body.storage:raise HTTPException(409,"Selected storage does not match this draft policy.")
-    try:result=preview(rows,storage,policy,[w.get("job") for w in bareos.get("workloads",[])])
+    try:result=preview(rows,storage,policy,[w.get("job") for w in bareos.get("workloads",[])],live_uuids=getattr(gateway(),"onboarding_vm_uuids",()))
     except ValueError as exc:raise HTTPException(409,str(exc))
     current={x["name"] for x in bareos["jobs"]}
     if any(c["job"] in current for c in result["changes"]):raise HTTPException(409,"Generated job already exists; review assignment.")
@@ -626,3 +641,94 @@ async def alert_acknowledge(alert_id:UUID,body:AcknowledgeRequest,request:Reques
     except PermissionError:raise HTTPException(403,"Administrator permission was revoked.")
     except ValueError as exc:raise HTTPException(409,str(exc))
     except Exception:raise HTTPException(503,"Alert acknowledgement unavailable. Reload current state before retrying.")
+
+
+from backend.vm_restore import VMRestoreDestination,build_vm_restore_plan
+class VMRestorePlanRequest(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    source_job_id:int=Field(gt=0,le=9223372036854775807)
+    destination:VMRestoreDestination
+
+@app.post("/api/recovery/vmware/plan")
+async def vm_restore_plan(body:VMRestorePlanRequest,request:Request):
+    if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
+    evidence=await recovery_inspection(body.source_job_id)
+    g=gateway()
+    try:
+        async with g.lock:
+            async with httpx.AsyncClient(verify=g.context,timeout=30,trust_env=False) as client:
+                row=await g.get(client,"/control/jobs/"+str(body.source_job_id))
+                jobs=await g.get(client,"/configuration/jobs")
+                definition=jobs.get("jobs",{}).get(row.get("name"),{})
+                sets=await g.get(client,"/configuration/filesets")
+                fs=sets.get("filesets",{}).get(definition.get("fileset"),{})
+                plugin=" ".join(str(v) for inc in fs.get("include",[]) for v in inc.get("plugin",[]))
+        if getattr(g,"values",{}).get("BACKUPCENTER_DIRECT_VM_RESTORE_ENABLED")=="1":
+            if evidence["blockers"]:raise ValueError("Resolve recovery blockers before selecting a VMware target.")
+            from backend.direct_restore_target import invoke
+            return await asyncio.to_thread(invoke,{"action":"plan","job_id":body.source_job_id,"destination":body.destination.model_dump()})
+        return build_vm_restore_plan(evidence,body.destination,plugin)
+    except ValueError as exc:raise HTTPException(409,str(exc))
+    except Exception:raise HTTPException(502,"VMware restore review unavailable. Check source configuration and try again.")
+
+
+@app.get("/api/recovery/vmware/targets")
+async def vm_restore_targets(request:Request):
+    if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
+    if gateway().values.get("BACKUPCENTER_DIRECT_VM_RESTORE_ENABLED")!="1":raise HTTPException(409,"Direct VMware restore is disabled.")
+    try:
+        from backend.direct_restore_target import invoke
+        return await asyncio.to_thread(invoke,{"action":"targets"})
+    except Exception:raise HTTPException(502,"VMware destination inventory unavailable. Check pinned connection and permissions.")
+
+class VMRestoreSubmitRequest(VMRestorePlanRequest):
+    idempotency_key:UUID
+    review_digest:str=Field(pattern=r"^[0-9a-f]{64}$")
+    confirmed:Literal[True]
+
+@app.post("/api/recovery/vmware/restore",status_code=202)
+async def vm_restore_submit(body:VMRestoreSubmitRequest,request:Request):
+    if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
+    g=gateway()
+    if not g.operation_dispatch_enabled or g.values.get("BACKUPCENTER_DIRECT_VM_RESTORE_ENABLED")!="1":raise HTTPException(409,"Direct VMware restore is disabled.")
+    parameters={"mode":"vmware-new-vm","destination":body.destination.model_dump(),"reviewDigest":body.review_digest,"summary":body.destination.vm_name+" → "+body.destination.host+" / "+body.destination.datastore}
+    try:
+        existing=await asyncio.to_thread(g.store.operation_key,body.idempotency_key)
+        if existing:
+            if existing["actor"]!=request.state.user["username"] or existing["kind"]!="restore" or existing["target"]!=str(body.source_job_id) or any(existing["parameters"].get(k)!=v for k,v in parameters.items()):raise HTTPException(409,"Request key belongs to a different restore intent.")
+            return existing
+        plan=await vm_restore_plan(body,request)
+        if not plan.get("dispatchEnabled") or plan["reviewDigest"]!=body.review_digest:raise HTTPException(409,"Restore destination/source changed. Review again.")
+        return await asyncio.to_thread(g.store.prepare,"restore",str(body.source_job_id),body.idempotency_key,request.state.user["username"],parameters)
+    except HTTPException:raise
+    except ValueError as exc:raise HTTPException(409,str(exc))
+    except Exception:raise HTTPException(503,"Restore journal unavailable; no request queued.")
+
+
+@app.get("/api/recovery/vmware/result/{operation_id}")
+async def vm_restore_result(operation_id:UUID,request:Request):
+    if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
+    try:
+        row=await asyncio.to_thread(gateway().store.operation,operation_id)
+        if not row or row["kind"]!="restore" or row["parameters"].get("mode")!="vmware-new-vm":raise HTTPException(404,"Direct VMware restore operation not found.")
+        from backend.direct_restore_target import invoke
+        return await asyncio.to_thread(invoke,{"action":"status","request_id":str(row["idempotency_key"])})
+    except HTTPException:raise
+    except Exception:raise HTTPException(502,"Restore verification receipt unavailable. Check operation and server history.")
+
+
+@app.get("/api/sessions/{job_id}/progress")
+async def session_progress(job_id:int):
+    if not 0<job_id<2**63:raise HTTPException(422,"Invalid JobId.")
+    g=gateway()
+    async with g.lock:
+        try:
+            async with httpx.AsyncClient(verify=g.context,timeout=15,trust_env=False) as client:
+                row=await g.get(client,"/control/jobs/"+str(job_id))
+                if row.get("type")!="R":raise HTTPException(409,"Select a restore session.")
+                data=await g.get(client,"/control/jobs/logs/"+str(job_id))
+            lines=[{"time":timestamp(x.get("time")),"text":g.redact(str(x.get("logtext","")))[:8000]} for x in records(data,"joblog")[-2000:]]
+            from backend.session_progress import progress
+            return progress(row,lines)
+        except HTTPException:raise
+        except Exception:raise HTTPException(502,"Live restore progress unavailable. Last displayed values may be stale.")

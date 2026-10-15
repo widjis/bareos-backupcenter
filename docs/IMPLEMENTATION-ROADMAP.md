@@ -6,12 +6,12 @@ This is the canonical execution and progress tracker for Bareos Backup Center. P
 
 ## Current position
 
-- Implemented: local monitoring, application PostgreSQL persistence, confirmed Run/Cancel, verified read-only VMware browsing, local account roles, recovery inspection/gated isolated-export code, revision-controlled draft policies/onboarding previews, durable controlled-provisioning rehearsal staging with explicit script-mapping review payloads, and observed failure/warning alerts and scoped CSV/print-page reports.
-- Final validation record: 82 backend tests passed. Typecheck, production build, formatting and Python syntax checks passed. The latest browser evidence remains the earlier complete 21-test suite; these provisioning-rehearsal refinements were not rerun in the browser.
-- Current focus: extend controlled provisioning beyond durable rehearsal into reviewed preparation/retention mapping proposals, managed apply/load gates, and live acceptance planning. The operator explicitly approved root helper installation/receipt integration; deployment is verified. Live target preparation remains deferred.
-- The operator explicitly deferred all live backup/cancel/restore and provisioning operations; these acceptance tasks remain open by instruction. The real Director operation journal remains empty; original configuration still has 11 jobs and no generated BC resources loaded.
-- P07 live apply/load, preparation/retention mappings and accepted assignment outcomes are unfinished. Per-resource Bareos ACL mapping, notification delivery, full RPO evaluation, production hardening/deployment and optional expansion remain open.
-- The full roadmap is not complete. Services remain loopback-only; no production or content/VM-boot recovery acceptance is claimed.
+- Local dashboard, authentication/roles, application persistence, monitoring, scoped Run/Cancel and VMware inventory are implemented. Services remain loopback-only.
+- PNET live onboarding, Full/Incremental, isolated VMDK restore and direct new-VM restore with an isolated OS-boot test have accepted evidence. Original PNET was preserved. Direct restore execution is root-scoped to VMware-PNET and supports one disk-datastore mapping, no NIC, power off and Never overwrite.
+- Restore progress polls current status/logs and explicitly delayed Catalog counters; a verified percentage/ETA is unavailable. Restore history uses exact journal-mapped VM destination names and distinguishes native warnings from explanatory classification.
+- Verification is recorded per slice below and in IMPLEMENTATION-REPORT.md. The latest full backend checkpoint is 100 passed with one POSIX-only module skipped on Windows; later focused changes have their own checks. Do not interpret an older full-suite checkpoint as a fresh full-release validation.
+- Current focus: restore usability and operator-visible evidence. General policy application/provisioning expansion, multi-datastore mappings, guest-file/application verification, production deployment/hardening and other unchecked tasks remain open.
+- The full application roadmap is not complete. Accepted restore/boot evidence is scoped to recorded test VMs and does not verify every guest file or application.
 
 ## Tracking rules
 
@@ -180,10 +180,10 @@ The roadmap splits the earlier product outline into implementation-sized milesto
 - [x] **P04-023** — Verify real PostgreSQL key uniqueness in a rolled-back transaction.
 - [x] **P04-024** — Verify the real journal remained empty during implementation tests.
 - [x] **P04-025** — Exercise process interruption during simulated dispatch and verify startup recovery end to end.
-- [ ] **P04-026** — Select an explicitly authorized noncritical job for live Run acceptance.
-- [ ] **P04-027** — Confirm live JobId acknowledgement, session tracking, and final outcome in the UI.
-- [ ] **P04-028** — Exercise cancellation only on an explicitly authorized active test session.
-- [ ] **P04-029** — Verify final cancellation and resulting backup/media state on the actual server.
+- [x] **P04-026** — Select an explicitly authorized noncritical job for live Run acceptance.
+- [x] **P04-027** — Confirm live JobId acknowledgement, session tracking, and final outcome in the UI.
+- [x] **P04-028** — Exercise cancellation only on an explicitly authorized active test session.
+- [x] **P04-029** — Verify final cancellation and resulting backup/media state on the actual server.
 - [ ] **P04-030** — Record operator acceptance and remaining operational limitations.
 
 **Evidence / exit boundary:** [OPERATIONS.md](OPERATIONS.md), backend operation tests, browser operation tests, and the implementation report. Most recent recorded results: 19 backend tests and 7 browser tests passed; mutations were simulated. Live acceptance is not established.
@@ -245,16 +245,16 @@ The roadmap splits the earlier product outline into implementation-sized milesto
 - [x] **P06-015** — Journal, dispatch, and reconcile restore JobIds without unsafe retries.
 - [ ] **P06-016** — Test missing chain, unavailable media, pruned metadata, target mismatch, and timeout.
 - [ ] **P06-017** — Test wizard back navigation, selection preservation, errors, and confirmations.
-- [ ] **P06-018** — Run a specifically authorized restore into an isolated test destination.
+- [x] **P06-018** — Run a specifically authorized restore into an isolated test destination. PNET restore JobId 25 succeeded; server helper/native console acceptance only.
 - [ ] **P06-019** — Verify restored file contents/checksums for file recovery.
-- [ ] **P06-020** — Verify VM/disk recovery and boot only where the selected plugin mode supports it.
-- [ ] **P06-021** — Record restore execution and content/boot verification as separate outcomes.
+- [x] **P06-020** — Verify VM/disk recovery and boot only where the selected plugin mode supports it.
+- [x] **P06-021** — Record restore execution and content/boot verification as separate outcomes. JobId 25 execution and disk metadata reads passed; guest-data/boot acceptance remains open.
 
 - [x] **P06-022** — Implement and simulate isolated whole-disk export review/confirmation, same-key dispatch and timeout/500 handling.
 - [x] **P06-023** — Verify actual read-only chain/media/item and export-plan contracts.
 - [x] **P06-024** — Prepare/test the local root target-helper review artifact without remote installation.
 - [x] **P06-025** — Install/integrate the approved root helper and validate ownership, mode, receipt checks and disabled scope without executing it.
-- [ ] **P06-026** — Execute target preparation and verify actual destination permissions. Deferred by operator instruction; installation does not establish live permission acceptance.
+- [x] **P06-026** — Execute target preparation and verify actual destination permissions. Explicitly approved PNET isolated target prepared; Bareos write access and actual VMDK creation verified.
 
 **Evidence / exit boundary:** [RECOVERY.md](RECOVERY.md) and [RESTORE-TARGET-PROPOSAL.md](RESTORE-TARGET-PROPOSAL.md). Export code is gated; no live restore or content verification occurred.
 
@@ -285,8 +285,8 @@ The roadmap splits the earlier product outline into implementation-sized milesto
 - [ ] **P07-017** — Show Configured / Pending first backup after provisioning rather than Protected.
 - [ ] **P07-018** — Offer first Run as a separate explicit action.
 - [ ] **P07-019** — Test concurrent edits, rename/move, shared-resource impact, service failure, and reload failure.
-- [ ] **P07-020** — Provision an explicitly authorized test VM and verify resulting Director resources.
-- [ ] **P07-021** — Verify its first backup and recovery separately before accepting onboarding.
+- [x] **P07-020** — Provision an explicitly authorized test VM and verify resulting Director resources.
+- [x] **P07-021** — Verify its first backup and recovery separately before accepting onboarding. PNET Full JobId 23 and explicitly approved Incremental JobId 24 succeeded on 2026-10-15; the engine resolved chain 23 → 24. New-VM restore JobId 27 and isolated OS boot accepted; guest-file/application verification is not claimed.
 
 - [x] **P07-022** — Create/test revision-controlled draft policy persistence with no external job changes.
 - [x] **P07-023** — Bind reviewed draft revisions to previews; reject existing/ambiguous assignment and storage/revision mismatch.
@@ -442,4 +442,62 @@ P04-026 through P04-030 and P06/P07 live acceptance remain open. Do not mark the
 - 2026-10-15: Added migration 008 for configuration revisions and protected assignments, implemented typed `/api/provisioning/apply` dry-run staging, operation-journal rehearsal completion, and inventory overlays for prepared assignments. Kept live Bareos apply disabled; updated onboarding/UX/database docs and verification evidence.
 - 2026-10-15: Extended provisioning preview/apply payloads with explicit preparation/retention script-review entries derived from current VMware workload jobs. Rehearsal revisions now persist reviewed allowlist proposals without modifying the original server scripts.
 
-Live-operation deferral is enforced by `BACKUPCENTER_OPERATION_DISPATCH_ENABLED=0`; server-side validation rejects every job mutation before remote preflight. Run/Cancel controls report monitoring-only state. Restore also requires the independent restore dispatch flag and approved scope. VMware preview rejects noncanonical and duplicate VM identities and caps selection at 25.
+Run/Cancel activation now uses `BACKUPCENTER_OPERATION_DISPATCH_ENABLED=1` and an explicit six-job server-side scope. The earlier all-operation deferral has been superseded only for confirmed Run/Cancel. Restore also requires the independent restore dispatch flag and approved scope. VMware preview rejects noncanonical and duplicate VM identities and caps selection at 25.
+
+## Windows startup verification — 2026-10-15
+
+- [x] **P02-021** — Provide a Windows PowerShell local launcher, keep loopback/dispatch boundaries, fix the local CA path, and verify login plus an authenticated real-data snapshot. Evidence: IMPLEMENTATION-REPORT.md, Windows local startup section.
+- [ ] **P02-022** — Obtain operator acceptance of the dashboard in the Windows browser. Local HTTP verification is complete; no production release or live-effect acceptance is implied.
+
+## Current execution slice — scoped Run/Cancel activation (2026-10-15)
+
+The operator requested continued implementation. This slice activates the existing confirmed Run/Cancel workflow for the six configured VMware jobs, adds server-enforced job scope, and verifies live effects using noncritical local acceptance jobs. Restore/provisioning and production release remain separate.
+
+- [x] **P04-031** — Enforce an explicit operation-job scope on both Run and Cancel and expose it to the canonical action controls. Verified.
+- [x] **P04-032** — Verify scoped controls through backend and browser tests.
+- [x] **P04-033** — Activate six-VM controls after noncritical live Run/Cancel acceptance; keep restore and provisioning disabled.
+
+- 2026-10-15: Scoped Run/Cancel implemented and activated. Local acceptance through the application produced JobId 18 T/OK and JobId 19 A/Canceled; original test configuration restored. Verified 28 backend/auth tests, four browser tests, TypeScript and live-data UI controls. Six-VM operator acceptance (P04-030), live restore and provisioning remain separate. Next implementation slice is policy application with reviewed preparation/retention and per-VM repository mappings.
+
+## Controlled PNET onboarding pilot — 2026-10-15
+
+The operator selected PNET (instance UUID 5208e076-eb89-9f06-2ef2-790ac92b4d71) for live Add-to-backup and first Full testing. Its initial power state is poweredOn; preserve it. The earlier RDS test selection is superseded and was never modified.
+
+- [x] **P07-028** — Implement root-owned typed onboarding for explicitly approved VM UUIDs, with dedicated per-VM folder/device/pool and existing fixed schedule/retention guards.
+- [x] **P07-029** — Wire reviewed live plans to the durable application journal and differentiate live apply from rehearsal in the canonical onboarding UI.
+- [x] **P07-030** — Provision PNET through the dashboard flow, verify configured identity and first Full, and preserve its power state.
+
+- 2026-10-15: Completed the UUID-scoped PNET live onboarding pilot and first Full through the actual browser workflow. Native dedicated folder/device/Pool/Job and fixed serial schedule are active; migration 008 is verified on the app database. Full JobId 23 succeeded in 77 seconds with zero errors; power preserved and snapshot cleaned. Applied an isolated Bareos 25.1.1 UUID-context compatibility patch with four checks. General provisioning/policy apply and restore remain unfinished. See VMWARE-ONBOARDING.md and IMPLEMENTATION-REPORT.md.
+
+- 2026-10-15: Explicitly approved one additional PNET Incremental test through the application operations API. JobId 24 succeeded (10 seconds, 7,925,206 bytes, zero errors); native level I and engine-resolved chain 23 → 24 verified on PNET-0009. No VM power change, snapshots or consolidation requirement after completion. P07-021 remains open for actual recovery acceptance.
+
+- 2026-10-15: Operator explicitly authorized PNET restore testing. P06-026 and P06-018 are in progress: latest recovery point 24 (Full 23 plus Incremental 24), one fresh UUID directory under the isolated restore root, Never overwrite. P06-020 boot acceptance remains separate. Use the installed server API/helper directly; dashboard restore transport remains unaccepted on Windows.
+
+- 2026-10-15: PNET isolated restore JobId 25 succeeded in 106 seconds, zero errors, using Full 23 + Incremental 24. Read-only VMDK/GPT checks and ext signature passed; original VM state preserved. Fixed missing explicit FileSet (8 focused tests passed), installed with rollback. Native console API mode submitted the corrected command without an interactive prompt; reconciled without resending. P06-018/021/026 accepted; P06-019/020 and P07-021 remain open for guest-data/boot verification. Dashboard restore dispatch stays disabled. See RECOVERY.md.
+
+
+## Direct VMware restore implementation — 2026-10-15
+
+- [x] **P06-027** — Implement an Admin-only typed new-VM restore planning API that revalidates recovery evidence, fixes power off/network disconnected/Never overwrite, and reports UUID-source and target-verification blockers without dispatch.
+- [x] **P06-028** — Add destination/review UI to RecoveryInspection with server validation, loading/error states and keyboard/browser acceptance.
+- [x] **P06-029** — Resolve source UUID compatibility, discover/validate live vCenter target topology and permissions, and implement durable direct-VM dispatch before enabling execution.
+- [x] **P06-030** — Independently accept new-VM creation, restored content and isolated boot through an explicitly reviewed destination.
+
+Current slice: P06-027/028. No console restore command is used for preview, since API console mode can dispatch without a trailing yes. P06-029/030 remain follow-up implementation/acceptance gates.
+
+- 2026-10-15: P06-027/028 implemented and verified: Admin-only typed review, source-chain/media revalidation, source UUID blockers, fixed off/disconnected/Never destination invariants, transient draft/discard guard and stale-response cancellation. 19 focused backend tests passed; five distinct recovery/browser tests passed across focused runs, including axe checks, invalid-field focus and 502 retry; final TypeScript passed. Actual PNET point 24 review returned [23,24], PNET-0009 and dispatchEnabled=false. P06-029/030 remain unchecked: live target discovery/validation, UUID-compatible new-VM execution and boot acceptance are not implemented.
+
+- 2026-10-15: Operator requested completion, including isolated PNET new-VM acceptance. P06-029/030 now in progress. Implement root-scoped target discovery/preflight, receipt-gated UUID redirection with no NIC at VM creation, durable existing restore journal mode, post-restore verification and isolated boot. Preserve original PNET and avoid execution previews.
+
+- 2026-10-15: P06-029/030 and P06-020/P07-021 accepted for the scoped PNET workflow. Actual dashboard restore JobId 27 created vm-32506 with zero NICs, zero errors and expected MAC/UUID regeneration warnings. Root receipt verified isolation and poweredOff; separate boot test reached running/guestToolsRunning and ended poweredOff. Original PNET remained on without snapshots. Current direct-VM workflow is complete within documented new-VM/single-datastore scope; no original-VM overwrite or application-data acceptance implied. See RECOVERY.md and IMPLEMENTATION-REPORT.md. Remaining P06 tasks concern separate file browsing/selection and guest-content features.
+
+
+- [x] **P06-031** — Add read-only restore-session polling with current status, elapsed time, native Catalog counters, stage/log tail and explicit unknown percentage; verify active/terminal/error transitions without running another restore.
+
+- 2026-10-15: P06-031 accepted. RestoreProgress polls the authenticated read-only session endpoint after each 3-second delay, pauses hidden tabs, aborts obsolete reads, stops terminal polling and preserves final/stale evidence. Dashboard tracks active restore sessions and session details expose the same panel. Three normalizer tests and two browser simulations passed; TypeScript passed. Live read-only JobId 27 verified Warning, 89 seconds, 16,044,756,500 bytes, 3 items, zero errors and log tail. No additional restore was executed. Precise active transfer percentage/total remains unavailable from the inspected installed status interface and is not invented.
+
+- [x] **P06-032** — Remove the arbitrary source-name/-RESTORE prefix requirement while preserving existing VM, datastore-directory and destination reservation collision checks. Verify the operator-selected PNET-TEST2-RESTORE destination through read-only preflight.
+
+- [x] **P06-033** — Explain observed native restore warnings and label restore history/drawers with the exact journal-mapped destination VM; keep unmapped native names and unrecognized warnings explicit. Verify without new restore execution.
+
+- 2026-10-15: P06-033 verified. Exact restore JobId journal mappings label History/search/drawer with the destination VM while preserving the native job name. Progress explains explicit MAC/UUID regeneration warnings and keeps other warnings unclassified. Four backend tests, two browser tests and TypeScript passed. Read-only live JobIds 27/28 each showed zero errors and two identity-change warnings. No new restore or VM power action was issued.

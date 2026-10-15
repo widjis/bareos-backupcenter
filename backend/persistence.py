@@ -95,7 +95,7 @@ class Store:
     def operation_audit(cur, row):
         cur.execute("INSERT INTO audit_events(connection_id,actor,event_type,details) VALUES(%s,%s,%s,%s)", (row["connection_id"],row["actor"],"operation."+row["state"].lower(),Json({"operationId":str(row["id"]),"kind":row["kind"],"target":row["target"],"jobId":row["job_id"],"state":row["state"]})))
 
-    def prepare(self, kind, target, key, actor):
+    def prepare(self, kind, target, key, actor, parameters=None):
         from uuid import uuid4
         with closing(self.connect()) as conn:
             with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -112,7 +112,7 @@ class Store:
                 if active:
                     raise ValueError("An unresolved operation already exists for this target")
                 cur.execute("INSERT INTO connections(id,name,provider) VALUES(%s,'Bareos Director','bareos') ON CONFLICT(id) DO NOTHING",(self.connection_id,))
-                cur.execute("INSERT INTO operation_requests(id,connection_id,idempotency_key,kind,target,state,actor,job_id,parameters) VALUES(%s,%s,%s,%s,%s,'Prepared',%s,%s,%s) RETURNING *",(str(uuid4()),self.connection_id,str(key),kind,target,actor,int(target) if kind=="cancel" else None,Json({"mode":"vm-disks-isolated","overwrite":"Never","destination":"/mnt/bareos-smb/backupcenter-restore-tests/"+str(key)} if kind=="restore" else {})))
+                cur.execute("INSERT INTO operation_requests(id,connection_id,idempotency_key,kind,target,state,actor,job_id,parameters) VALUES(%s,%s,%s,%s,%s,'Prepared',%s,%s,%s) RETURNING *",(str(uuid4()),self.connection_id,str(key),kind,target,actor,int(target) if kind=="cancel" else None,Json(parameters if parameters is not None else ({"mode":"vm-disks-isolated","overwrite":"Never","destination":"/mnt/bareos-smb/backupcenter-restore-tests/"+str(key)} if kind=="restore" else {}))))
                 row=dict(cur.fetchone())
                 self.operation_audit(cur,row)
                 return row
@@ -234,18 +234,18 @@ class Store:
                         raise ValueError("A provisioning rehearsal for at least one selected VM is already in progress.")
                 cur.execute("INSERT INTO connections(id,name,provider) VALUES(%s,'Bareos Director','bareos') ON CONFLICT(id) DO NOTHING",(self.connection_id,))
                 revision_id=str(uuid4())
-                payload=Json({**plan,"simulationOnly":True})
+                payload=Json({**plan,"simulationOnly":plan.get("mode")!="live"})
                 cur.execute("INSERT INTO configuration_revisions(id,connection_id,policy_id,policy_revision,actor,state,payload) VALUES(%s,%s,%s,%s,%s,'Prepared',%s)",(revision_id,self.connection_id,plan.get("policyId"),plan.get("policyRevision") or 0,actor,payload))
                 for row in rows:
                     assignment_id=str(uuid4())
                     params=(assignment_id,self.connection_id,row["inventoryId"],row["instanceUuid"],revision_id,plan.get("policyId"),plan.get("policyRevision") or 0,row["job"],row["fileset"],row["pool"],row["storage"],"Prepared")
                     cur.execute("INSERT INTO protection_assignments(id,connection_id,inventory_vm_id,instance_uuid,configuration_revision_id,policy_id,policy_revision,job_name,fileset_name,pool_name,storage_name,state) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(connection_id,inventory_vm_id) DO UPDATE SET instance_uuid=excluded.instance_uuid,configuration_revision_id=excluded.configuration_revision_id,policy_id=excluded.policy_id,policy_revision=excluded.policy_revision,job_name=excluded.job_name,fileset_name=excluded.fileset_name,pool_name=excluded.pool_name,storage_name=excluded.storage_name,state=excluded.state,updated_at=now()",params)
                 operation_id=str(uuid4())
-                parameters={"summary":summary,"vmCount":len(rows),"inventoryIds":[row["inventoryId"] for row in rows],"policyName":plan["policy"]["name"],"simulationOnly":True,"revisionId":revision_id}
+                parameters={"summary":summary,"vmCount":len(rows),"inventoryIds":[row["inventoryId"] for row in rows],"policyName":plan["policy"]["name"],"simulationOnly":plan.get("mode")!="live","revisionId":revision_id}
                 cur.execute("INSERT INTO operation_requests(id,connection_id,idempotency_key,kind,target,state,actor,parameters) VALUES(%s,%s,%s,'provision',%s,'Prepared',%s,%s) RETURNING *",(operation_id,self.connection_id,str(key),revision_id,actor,Json(parameters)))
                 operation=dict(cur.fetchone())
                 self.operation_audit(cur,operation)
-                cur.execute("INSERT INTO audit_events(connection_id,actor,event_type,details) VALUES(%s,%s,'provision.revision.prepared',%s)",(self.connection_id,actor,Json({"revisionId":revision_id,"vmCount":len(rows),"policyName":plan["policy"]["name"],"simulationOnly":True})))
+                cur.execute("INSERT INTO audit_events(connection_id,actor,event_type,details) VALUES(%s,%s,'provision.revision.prepared',%s)",(self.connection_id,actor,Json({"revisionId":revision_id,"vmCount":len(rows),"policyName":plan["policy"]["name"],"simulationOnly":plan.get("mode")!="live"})))
                 return operation
 
     def provision_revision(self, revision_id):
@@ -264,9 +264,9 @@ class Store:
                 if not row:return None
                 cur.execute("UPDATE configuration_revisions SET state=%s,payload=payload || %s,updated_at=now() WHERE connection_id=%s AND id=%s RETURNING *",(state,Json(details),self.connection_id,str(revision_id)))
                 revision=dict(cur.fetchone())
-                assignment_state="Prepared" if state=="Validated" else "Failed"
+                assignment_state="Retired" if details.get("liveApplied") else "Prepared" if state=="Validated" else "Failed"
                 cur.execute("UPDATE protection_assignments SET state=%s,updated_at=now() WHERE connection_id=%s AND configuration_revision_id=%s",(assignment_state,self.connection_id,str(revision_id)))
-                cur.execute("INSERT INTO audit_events(connection_id,actor,event_type,details) VALUES(%s,%s,%s,%s)",(self.connection_id,actor,"provision.revision."+state.lower(),Json({"revisionId":str(revision_id),"simulationOnly":True,"vmCount":len(revision["payload"].get("changes",[]))})))
+                cur.execute("INSERT INTO audit_events(connection_id,actor,event_type,details) VALUES(%s,%s,%s,%s)",(self.connection_id,actor,"provision.revision."+state.lower(),Json({"revisionId":str(revision_id),"simulationOnly":not bool(details.get("liveApplied")),"vmCount":len(revision["payload"].get("changes",[]))})))
                 return revision
 
     def save_policy(self, body, actor):

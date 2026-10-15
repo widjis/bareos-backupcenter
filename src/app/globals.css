@@ -1756,3 +1756,9 @@ pre {
 .alert-toolbar .auth-field {
   min-width: 180px;
 }
+
+.restore-progress { margin-block: 16px; padding: 20px; }
+.restore-progress summary { cursor: pointer; margin-top: 12px; }
+.restore-progress .log-view { max-height: 240px; overflow: auto; }
+
+.restore-warning-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }

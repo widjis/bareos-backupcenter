@@ -37,4 +37,4 @@ The local monitoring application, PostgreSQL persistence, VMware inventory, loca
 
 ## Next steps
 
-Follow [IMPLEMENTATION-ROADMAP.md](IMPLEMENTATION-ROADMAP.md). The next independent implementation phase is read-only VMware inventory (P05); live Run/Cancel acceptance remains tracked separately in P04.
+Follow [IMPLEMENTATION-ROADMAP.md](IMPLEMENTATION-ROADMAP.md). The PNET-only live onboarding pilot and its first Full have passed; general onboarding, configurable policy apply and actual restore acceptance remain open. See VMWARE-ONBOARDING.md for the scope and compatibility patch.

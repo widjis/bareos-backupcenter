@@ -89,3 +89,17 @@ The backend starts the database-elected operation worker. A queued request conti
 Migrations 002–008 add inventory, local identity, constrained isolated-restore intents, draft policies, observed alerts, and dry-run provisioning revisions/assignments. Backend/bootstrap restarts load the local settings. Report/alert evaluation uses collected observations; closing the UI does not create an always-on notification collector. Provisioning apply now stages a durable rehearsal that writes temporary local fixtures only and records a `provision` journal entry; it does not modify Bareos configuration or reload the Director. Live restore remains disabled; the approved helper/receipt integration is installed but scope is absent and the helper remains unexecuted. See RESTORE-TARGET-PROPOSAL.md before any server setup.
 
 The worker fault check `.venv/bin/python -m scripts.verify_worker_recovery` uses a separate PostgreSQL namespace, mocked Director I/O and administrator cleanup of its own fixture rows. It is an integration check, not a real backup/cancel/restore test. Do not run live commands merely to satisfy a roadmap checkbox.
+
+## Windows local startup — verified 2026-10-15
+
+From PowerShell in the project root, run:
+
+```powershell
+.\scripts\dev.ps1
+```
+
+The launcher starts hidden loopback-only frontend/backend processes and records logs and launcher PIDs under ignored `.local/`. If a port is occupied it does not kill or replace the existing process; verify that it belongs to this application. This is a local development process, not an installed production service. It does not enable backup or restore dispatch.
+
+Windows requires `.venv\Scripts\python.exe`, installed frontend dependencies, and Node.js on PATH. Install `tzdata` into the virtualenv for IANA timezone support on Windows. The existing `.env` had a macOS PostgreSQL CA path; it now points to `.local/postgres-ca.pem` in the Windows checkout. The public certificate was retrieved over SSH using an already trusted host key. Database SSL verification remains enabled. No database bootstrap/migration or credential reset was performed.
+
+Initial Admin login settings remain in ignored `.env` (`BACKUPCENTER_ADMIN_USERNAME` / `BACKUPCENTER_ADMIN_PASSWORD`). Do not copy them into documentation or browser source.

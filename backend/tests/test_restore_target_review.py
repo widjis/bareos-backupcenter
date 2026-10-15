@@ -1,4 +1,5 @@
 import pytest
+pytest.importorskip("pwd", reason="Root helper/receipt integration requires Linux POSIX metadata.")
 from integration.prepare_restore_target import prepare,rpc_objects
 
 

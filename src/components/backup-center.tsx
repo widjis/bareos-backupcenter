@@ -1,4 +1,5 @@
 "use client";
+import { RestoreProgress } from "./restore-progress";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Play,
@@ -91,6 +92,7 @@ type Operation = {
     sessionStatus?: string;
     summary?: string;
     simulationOnly?: boolean;
+    destination?: {vm_name?:string;host?:string;datastore?:string};
   };
   created_at: string;
   updated_at: string;
@@ -143,6 +145,8 @@ type Snapshot = {
   };
   capabilities?: {
     controls?: boolean;
+    operationJobs?: string[];
+    onboardingUuids?: string[];
     readOnly?: boolean;
     provisioningApply?: boolean;
   };
@@ -283,6 +287,7 @@ export default function BackupCenter() {
   const [confirmation, setConfirmation] = useState<ConfirmAction | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [trackedRestore,setTrackedRestore] = useState<number|null>(null);
   const [lastOperation, setLastOperation] = useState<Operation | null>(null);
   const confirmationDialog = useRef<HTMLDialogElement>(null);
   const confirmationOpener = useRef<HTMLElement | null>(null);
@@ -468,6 +473,11 @@ export default function BackupCenter() {
       clearInterval(interval);
     };
   }, [loadOperations]);
+  useEffect(()=>{
+    if(lastOperation?.kind==="restore"&&!lastOperation.job_id&&["Prepared","Dispatching"].includes(lastOperation.state)){setTrackedRestore(null);return;}
+    const id=lastOperation?.kind==="restore"?lastOperation.job_id:operations.find(o=>o.kind==="restore"&&o.job_id&&["Accepted","Running"].includes(o.state))?.job_id;
+    if(id)setTrackedRestore(id);
+  },[operations,lastOperation]);
   const activeOperation = (kind: string, target: string) =>
     operations.some(
       (o) =>
@@ -475,6 +485,9 @@ export default function BackupCenter() {
         o.target === target &&
         !["Completed", "Failed"].includes(o.state),
     );
+  const jobInScope = (name: string) =>
+    !data?.capabilities?.operationJobs ||
+    data.capabilities.operationJobs.includes(name);
   const controlsReady =
     !!data?.capabilities?.controls &&
     data?.connection === "connected" &&
@@ -558,14 +571,15 @@ export default function BackupCenter() {
   };
   const matches = (value: unknown) =>
     JSON.stringify(value).toLowerCase().includes(query.toLowerCase());
+  const restoreDestination = (s:Session) => s.type==="Restore" ? operations.find(o=>o.kind==="restore"&&o.job_id===s.id)?.parameters.destination?.vm_name : undefined;
   const sessionLink = (s: Session) => (
     <button className="text-button" onClick={() => open(s)}>
-      {s.name}
+      {restoreDestination(s) || s.name}
       <ArrowUpRight size={14} />
     </button>
   );
   const historyRows = (data?.sessions || [])
-    .filter(matches)
+    .filter(s=>matches(s)||matches(restoreDestination(s)||""))
     .map((s) => [
       sessionLink(s),
       <span className="mono">#{s.id}</span>,
@@ -702,7 +716,7 @@ export default function BackupCenter() {
                   {lastOperation.kind === "run"
                     ? "Run request"
                     : lastOperation.kind === "restore"
-                      ? "Restore export request"
+                      ? "Restore request"
                       : lastOperation.kind === "provision"
                         ? "Onboarding rehearsal"
                         : "Cancel request"}
@@ -728,6 +742,7 @@ export default function BackupCenter() {
               </button>
             </div>
           )}
+          {trackedRestore && selected?.type!=="Restore" ? <RestoreProgress jobId={trackedRestore}/> : null}
           {data?.persistence?.state === "unavailable" && (
             <div className="connection-banner" role="status">
               <Database size={18} />
@@ -1034,6 +1049,7 @@ export default function BackupCenter() {
                           disabled={
                             !controlsReady ||
                             !j.enabled ||
+                            !jobInScope(j.name) ||
                             (!!j.latest &&
                               [
                                 "Running",
@@ -1060,6 +1076,7 @@ export default function BackupCenter() {
                         !activeOperation("run", j.name) &&
                         (!controlsReady ||
                           !j.enabled ||
+                          !jobInScope(j.name) ||
                           (!!j.latest &&
                             [
                               "Running",
@@ -1071,11 +1088,13 @@ export default function BackupCenter() {
                           <small>
                             {!controlsReady
                               ? "Live connection required"
-                              : !j.enabled
-                                ? "Job disabled"
-                                : !/^[A-Za-z0-9_.-]{1,128}$/.test(j.name)
-                                  ? "Job name not supported"
-                                  : "Session active"}
+                              : !jobInScope(j.name)
+                                ? "Outside enabled operation scope"
+                                : !j.enabled
+                                  ? "Job disabled"
+                                  : !/^[A-Za-z0-9_.-]{1,128}$/.test(j.name)
+                                    ? "Job name not supported"
+                                    : "Session active"}
                           </small>
                         )}
                       {activeOperation("run", j.name) && (
@@ -1193,9 +1212,13 @@ export default function BackupCenter() {
                         "Outcome",
                       ]}
                       rows={operations.map((o) => [
-                        `${o.kind === "run" ? "Run" : o.kind === "restore" ? "Restore export" : o.kind === "provision" ? "Onboarding rehearsal" : "Cancel"} · ${o.parameters.summary || o.target}`,
+                        `${o.kind === "run" ? "Run" : o.kind === "restore" ? "Restore" : o.kind === "provision" ? (o.parameters.simulationOnly === false ? "Enable backup" : "Onboarding rehearsal") : "Cancel"} · ${o.parameters.summary || o.target}`,
                         <Badge value={o.state} />,
-                        o.job_id ? `#${o.job_id}` : "Not confirmed",
+                        o.job_id
+                          ? `#${o.job_id}`
+                          : o.kind === "provision"
+                            ? "Not applicable"
+                            : "Not confirmed",
                         date(o.created_at),
                         <span className="operation-message">
                           {o.parameters.message || "Queued"}
@@ -1212,6 +1235,7 @@ export default function BackupCenter() {
                 <>
                   <VMwareInventory
                     storages={data.storages}
+                    liveUuids={data.capabilities?.onboardingUuids || []}
                     onQueued={(operation) => {
                       setLastOperation(operation);
                       void loadOperations();
@@ -1431,7 +1455,7 @@ export default function BackupCenter() {
               Backup Center <span className="muted">/</span> Bareos{" "}
               {data?.director.version || "—"}
             </span>
-            <span>Local operations · Restore verification not performed</span>
+            <span>Local operations · Restore verification is recorded per test</span>
           </footer>
         </main>
       </div>
@@ -1478,7 +1502,8 @@ export default function BackupCenter() {
         </div>
         {selected && (
           <>
-            <h3>{selected.name}</h3>
+            <h3>{restoreDestination(selected) || selected.name}</h3>
+            {restoreDestination(selected) && <p>Bareos job: {selected.name}</p>}
             <Badge value={selected.status} />
             <dl>
               <dt>Started</dt>
@@ -1509,6 +1534,7 @@ export default function BackupCenter() {
                     className="button danger-outline"
                     disabled={
                       !controlsReady ||
+                      !jobInScope(selected.name) ||
                       activeOperation("cancel", String(selected.id))
                     }
                     onClick={() =>
@@ -1523,6 +1549,7 @@ export default function BackupCenter() {
                   </small>
                 </div>
               )}
+            {selected.type === "Restore" && <RestoreProgress jobId={selected.id} />}
             <h3>Session log</h3>
             {logBusy && <p role="status">Loading session log…</p>}
             {logError && (
