@@ -1,4 +1,6 @@
 "use client";
+import { ActivePolicySettings } from "./active-policy";
+import { NativeSelectField } from "./form-controls";
 import { RestoreProgress } from "./restore-progress";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -91,6 +93,7 @@ type Operation = {
     message?: string;
     sessionStatus?: string;
     summary?: string;
+    requestedLevel?: "Full" | "Incremental";
     simulationOnly?: boolean;
     destination?: {vm_name?:string;host?:string;datastore?:string};
   };
@@ -98,6 +101,7 @@ type Operation = {
   updated_at: string;
 };
 type ConfirmAction = {
+  requestedLevel?: "Full" | "Incremental";
   kind: "run" | "cancel";
   target: string;
   key: string;
@@ -149,6 +153,9 @@ type Snapshot = {
     onboardingUuids?: string[];
     readOnly?: boolean;
     provisioningApply?: boolean;
+    directVMRestore?: boolean;
+    activePolicyApply?: boolean;
+    vmwareInventory?: boolean;
   };
   sessionTotal: number;
   sessionLimit: number;
@@ -286,10 +293,12 @@ export default function BackupCenter() {
   const [operationPage, setOperationPage] = useState(1);
   const [confirmation, setConfirmation] = useState<ConfirmAction | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [levelLocked,setLevelLocked] = useState(false);
   const [actionError, setActionError] = useState("");
   const [trackedRestore,setTrackedRestore] = useState<number|null>(null);
   const [lastOperation, setLastOperation] = useState<Operation | null>(null);
   const confirmationDialog = useRef<HTMLDialogElement>(null);
+  const confirmationBack = useRef<HTMLButtonElement>(null);
   const confirmationOpener = useRef<HTMLElement | null>(null);
   const submitLock = useRef(false);
   const [selected, setSelected] = useState<Session | null>(null),
@@ -432,7 +441,8 @@ export default function BackupCenter() {
   useEffect(() => {
     if (!confirmation) return;
     confirmationDialog.current?.showModal();
-  }, [confirmation]);
+    confirmationBack.current?.focus();
+  }, [confirmation?.key]);
   const loadOperations = useCallback(async (signal?: AbortSignal) => {
     try {
       const response = await apiFetch("/api/operations", {
@@ -501,6 +511,7 @@ export default function BackupCenter() {
     if (!controlsReady || activeOperation(kind, target)) return;
     confirmationOpener.current = document.activeElement as HTMLElement;
     setActionError("");
+    setLevelLocked(false);
     setConfirmation({ kind, target, level, key: crypto.randomUUID() });
   };
   const closeConfirmation = () => {
@@ -512,6 +523,7 @@ export default function BackupCenter() {
   const submitAction = async () => {
     if (!confirmation || submitLock.current) return;
     submitLock.current = true;
+    setLevelLocked(true);
     setSubmitting(true);
     setActionError("");
     try {
@@ -522,6 +534,7 @@ export default function BackupCenter() {
           "X-Backup-Center-Action": "confirmed",
         },
         body: JSON.stringify({
+          ...(confirmation.kind==="run"&&confirmation.requestedLevel?{level:confirmation.requestedLevel}:{}),
           kind: confirmation.kind,
           target: confirmation.target,
           idempotency_key: confirmation.key,
@@ -726,6 +739,7 @@ export default function BackupCenter() {
                   {lastOperation.parameters.message ||
                     "Queued for validation and dispatch."}
                 </p>
+                {lastOperation.kind==="run"&&lastOperation.parameters.requestedLevel&&<p>Requested backup level: {lastOperation.parameters.requestedLevel}</p>}
                 <small>
                   Operation {lastOperation.id}
                   {lastOperation.job_id
@@ -1316,6 +1330,7 @@ export default function BackupCenter() {
               {view === "settings" && (
                 <>
                   <UserSettings />
+                  {identity?.role === "Admin" && <ActivePolicySettings />}
                   <PolicySettings storages={data.storages} />
                   <div className="settings-grid">
                     <section className="panel">
@@ -1353,17 +1368,17 @@ export default function BackupCenter() {
                             : "Unavailable"}
                         </dd>
                         <dt>Restore</dt>
-                        <dd>Not enabled</dd>
+                        <dd>{identity?.role!=="Admin"?"Admin-only":data.capabilities?.directVMRestore?"Direct VMware restore · approved source scope":"Not enabled"}</dd>
                         <dt>vCenter inventory</dt>
-                        <dd>Not connected</dd>
+                        <dd>{data.capabilities?.vmwareInventory?"Inventory browsing available":"Unavailable"}</dd>
                         <dt>Add to backup</dt>
                         <dd>
                           {data.capabilities?.provisioningApply
-                            ? "Dry-run rehearsal only"
+                            ? (data.capabilities?.onboardingUuids?.length ? "Controlled apply for approved VMs" : "Dry-run rehearsal only")
                             : "Not enabled"}
                         </dd>
                         <dt>User management</dt>
-                        <dd>Single local operator</dd>
+                        <dd>Local accounts and roles</dd>
                         <dt>Credentials</dt>
                         <dd>Backend only · not sent to the browser</dd>
                       </dl>
@@ -1600,8 +1615,9 @@ export default function BackupCenter() {
         <p id="confirmation-description">
           {confirmation?.kind === "cancel"
             ? `Request cancellation of Job #${confirmation.target}. This can leave an incomplete backup.`
-            : `Start ${confirmation?.target} using its configured settings and pre-job scripts. Bareos may promote an incremental request to Full if required.`}
+            : `Start ${confirmation?.target}${confirmation?.requestedLevel ? ` at ${confirmation.requestedLevel} level` : " using its configured default level"} with its pre-job scripts. Bareos may promote an incremental request to Full if required.`}
         </p>
+        {confirmation?.kind==="run" && <NativeSelectField label="Backup level" value={confirmation.requestedLevel||""} disabled={submitting||levelLocked} options={[{value:"",label:"Configured default"},{value:"Full",label:"Full"},{value:"Incremental",label:"Incremental"}]} onChange={value=>setConfirmation(c=>c?{...c,requestedLevel:(value||undefined) as "Full"|"Incremental"|undefined}:c)} />}
         {confirmation?.level && (
           <p className="confirmation-detail">
             Configured level: {confirmation.level}
@@ -1619,6 +1635,7 @@ export default function BackupCenter() {
         <div className="confirmation-actions">
           <button
             autoFocus
+            ref={confirmationBack}
             className="button"
             disabled={submitting}
             onClick={closeConfirmation}

@@ -251,7 +251,7 @@ def gateway():
 async def operational_boundary(request, call_next):
     from fastapi.responses import JSONResponse
     from backend import auth
-    allowed_posts={"/api/operations","/api/auth/login","/api/auth/logout","/api/auth/password","/api/users","/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies"}
+    allowed_posts={"/api/operations","/api/auth/login","/api/auth/logout","/api/auth/password","/api/users","/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies/active/preview","/api/policies/active/apply","/api/policies"}
     mutation=request.method=="POST" and (request.url.path in allowed_posts or request.url.path.startswith("/api/users/") or (request.url.path.startswith("/api/alerts/") and request.url.path.endswith("/ack")))
     if request.method not in ("GET", "HEAD") and not mutation:
         return JSONResponse({"detail": "This operation is not enabled."}, status_code=405)
@@ -264,7 +264,7 @@ async def operational_boundary(request, call_next):
         request.state.user=user
         if (request.url.path=="/api/users" or request.url.path.startswith("/api/users/")) and user["role"]!="Admin":
             return JSONResponse({"detail":"Administrator permission required."},status_code=403)
-        if (request.url.path in ("/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies") or request.url.path.startswith("/api/alerts/")) and mutation and user["role"]!="Admin":
+        if (request.url.path in ("/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies/active/preview","/api/policies/active/apply","/api/policies") or request.url.path.startswith("/api/alerts/")) and mutation and user["role"]!="Admin":
             return JSONResponse({"detail":"Administrator permission required."},status_code=403)
         if request.url.path=="/api/operations" and mutation and user["role"] not in ("Admin","Backup Operator"):
             return JSONResponse({"detail":"Backup operation permission required."},status_code=403)
@@ -278,7 +278,7 @@ async def operational_boundary(request, call_next):
 
 @app.get("/api/health")
 def health():
-    return {"service":"backup-center","authentication":"local-accounts","binding":"loopback-only","controls":["run","cancel"],"restore":"gated; acceptance pending"}
+    return {"service":"backup-center","authentication":"local-accounts","binding":"loopback-only","controls":["run","cancel"],"restore":"scoped; verification recorded per test"}
 
 @app.get("/api/snapshot")
 async def snapshot(request: Request, refresh: bool = False):
@@ -288,6 +288,8 @@ async def snapshot(request: Request, refresh: bool = False):
     result["capabilities"]["operationJobs"]=sorted(getattr(gateway(),"operation_jobs",[]))
     result["capabilities"]["onboardingUuids"]=sorted(getattr(gateway(),"onboarding_vm_uuids",())) if request.state.user["role"]=="Admin" else []
     result["capabilities"]["vmwareInventory"]=True
+    result["capabilities"]["directVMRestore"]=request.state.user["role"]=="Admin" and getattr(gateway(),"values",{}).get("BACKUPCENTER_DIRECT_VM_RESTORE_ENABLED")=="1"
+    result["capabilities"]["activePolicyApply"]=request.state.user["role"]=="Admin" and getattr(gateway(),"values",{}).get("BACKUPCENTER_POLICY_APPLY_ENABLED")=="1" and result.get("persistence",{}).get("state")=="connected"
     result["capabilities"]["provisioningPreview"]=request.state.user["role"]=="Admin"
     result["capabilities"]["provisioningApply"]=request.state.user["role"]=="Admin" and result.get("persistence",{}).get("state")=="connected"
     return result
@@ -320,12 +322,14 @@ async def audit():
 class OperationRequest(BaseModel):
     model_config=ConfigDict(extra="forbid")
     kind: Literal["run","cancel","restore"]
+    level: Optional[Literal["Full","Incremental"]] = None
     target: str = Field(min_length=1,max_length=128)
     idempotency_key: UUID
     confirmed: Literal[True]
 
     @model_validator(mode="after")
     def canonical_target(self):
+        if self.kind!="run" and self.level is not None:raise ValueError("Backup level is only supported for Run requests.")
         if self.kind in ("cancel","restore"):
             if not self.target.isdigit() or not (0<int(self.target)<=9223372036854775807):
                 raise ValueError("A positive backup JobId is required.")
@@ -344,11 +348,14 @@ async def create_operation(body: OperationRequest, request: Request):
         if match:
             if match["actor"]!=request.state.user["username"]:raise HTTPException(409,"Request key belongs to another operator.")
             if match["kind"]!=body.kind or match["target"]!=body.target:raise HTTPException(409,"Idempotency key belongs to another request.")
+            if body.kind=="run" and match["parameters"].get("requestedLevel")!=body.level:raise HTTPException(409,"Idempotency key belongs to a different backup level.")
             return match
         from backend.operations import validate
         async with g.lock:
             async with httpx.AsyncClient(verify=g.context,timeout=12,trust_env=False) as client:
                 await validate(g,client,body.kind,body.target)
+        if body.kind=="run" and body.level:
+            return await asyncio.to_thread(g.store.prepare,body.kind,body.target,body.idempotency_key,request.state.user["username"],{"requestedLevel":body.level})
         return await asyncio.to_thread(g.store.prepare,body.kind,body.target,body.idempotency_key,request.state.user["username"])
     except HTTPException:raise
     except ValueError as exc:raise HTTPException(409,str(exc))
@@ -732,3 +739,53 @@ async def session_progress(job_id:int):
             return progress(row,lines)
         except HTTPException:raise
         except Exception:raise HTTPException(502,"Live restore progress unavailable. Last displayed values may be stale.")
+
+
+from backend.active_policy import ActivePolicy
+class ActivePolicyPreview(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    definition:ActivePolicy
+class ActivePolicyApply(ActivePolicyPreview):
+    request_id:UUID
+    review_digest:str=Field(pattern=r"^[0-9a-f]{64}$")
+    confirmed:Literal[True]
+
+@app.get("/api/policies/active")
+async def active_policy_current(request:Request):
+    if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
+    try:
+        from backend.policy_target import invoke
+        r=await asyncio.to_thread(invoke,{"action":"current"});r["applyEnabled"]=gateway().values.get("BACKUPCENTER_POLICY_APPLY_ENABLED")=="1";return r
+    except Exception:raise HTTPException(502,"Active policy unavailable. No settings changed.")
+
+@app.post("/api/policies/active/preview")
+async def active_policy_preview(body:ActivePolicyPreview,request:Request):
+    if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
+    try:
+        from backend.policy_target import invoke
+        return await asyncio.to_thread(invoke,{"action":"preview","definition":body.definition.model_dump()})
+    except ValueError as exc:raise HTTPException(409,str(exc))
+    except Exception:raise HTTPException(502,"Policy review unavailable. No settings changed.")
+
+@app.post("/api/policies/active/apply")
+async def active_policy_apply(body:ActivePolicyApply,request:Request):
+    if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
+    g=gateway()
+    if g.values.get("BACKUPCENTER_POLICY_APPLY_ENABLED")!="1":raise HTTPException(409,"Live policy application is disabled.")
+    if not await asyncio.to_thread(g.store.actor_allowed,request.state.user["username"],"provision"):raise HTTPException(403,"Administrator permission was revoked.")
+    try:
+        from backend.policy_target import invoke
+        async with g.lock:
+            if not await asyncio.to_thread(g.store.actor_allowed,request.state.user["username"],"provision"):raise HTTPException(403,"Administrator permission was revoked.")
+            return await asyncio.to_thread(invoke,{"action":"apply","definition":body.definition.model_dump(),"request_id":str(body.request_id),"digest":body.review_digest,"actor":request.state.user["username"]})
+    except HTTPException:raise
+    except ValueError as exc:raise HTTPException(409,str(exc))
+    except Exception:raise HTTPException(502,"Policy outcome unknown. Check application status with the same request ID; do not create a new request.")
+
+@app.get("/api/policies/active/status/{request_id}")
+async def active_policy_status(request_id:UUID,request:Request):
+    if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
+    try:
+        from backend.policy_target import invoke
+        return await asyncio.to_thread(invoke,{"action":"status","request_id":str(request_id)})
+    except Exception:raise HTTPException(502,"Policy receipt unavailable. Reconcile server status before a new request.")

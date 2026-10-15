@@ -237,3 +237,9 @@ test("Jobs outside the enabled operation scope remain disabled", async ({
   ).toBeDisabled();
   await expect(page.getByText("Outside enabled operation scope")).toBeVisible();
 });
+
+for(const level of ['Full','Incremental'])test('manual '+level+' is confirmed and retained on retry',async({page})=>{
+ await setup(page);const bodies:Record<string,unknown>[]=[];
+ await page.route('**/api/operations*',route=>{if(route.request().method()==='POST'){const body=route.request().postDataJSON();bodies.push(body);return route.fulfill(bodies.length===1?{status:503,json:{detail:'Delivery unknown; reconcile journal.'}}:{status:202,json:{id:'fixture',kind:'run',target:body.target,state:'Prepared',parameters:{requestedLevel:level}}});}return route.fulfill({json:{operations:[]}});});
+ await page.goto('/?view=jobs');await page.getByRole('button',{name:'Run VMware-safe now'}).click();const d=page.getByRole('dialog',{name:'Run backup now?'});await d.getByLabel('Backup level').selectOption(level);await d.getByRole('button',{name:'Run backup',exact:true}).click();await expect(d.getByRole('alert')).toContainText('Delivery unknown');await expect(d.getByLabel('Backup level')).toBeDisabled();await d.getByRole('button',{name:'Run backup',exact:true}).click();await expect(d).not.toBeVisible();expect(bodies[0].level).toBe(level);expect(bodies[1].level).toBe(level);expect(bodies[0].idempotency_key).toBe(bodies[1].idempotency_key);
+});

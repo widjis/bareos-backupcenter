@@ -1762,3 +1762,8 @@ pre {
 .restore-progress .log-view { max-height: 240px; overflow: auto; }
 
 .restore-warning-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+
+.policy-job-choice { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+
+.active-policy-settings { padding: 20px; }
+.active-policy-settings fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 12px 0; }

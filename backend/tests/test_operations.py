@@ -12,13 +12,13 @@ class FakeStore:
     def __init__(self):self.rows={};self.transitions=[];self.revisions={}
     def operation_key(self,key):return next((r for r in self.rows.values() if str(r["idempotency_key"])==str(key)),None)
     def operations(self,pending=False):return list(self.rows.values())
-    def prepare(self,kind,target,key,actor="testadmin"):
+    def prepare(self,kind,target,key,actor="testadmin",parameters=None):
         existing=self.operation_key(key)
         if existing:
             if existing["kind"]!=kind or existing["target"]!=target:raise ValueError("Key conflict")
             return existing
         if any(r["kind"]==kind and r["target"]==target and r["state"] not in ("Completed","Failed") for r in self.rows.values()):raise ValueError("Unresolved operation")
-        row={"id":str(uuid4()),"idempotency_key":str(key),"kind":kind,"target":target,"state":"Prepared","job_id":int(target) if kind=="cancel" else None,"parameters":{},"actor":actor}
+        row={"id":str(uuid4()),"idempotency_key":str(key),"kind":kind,"target":target,"state":"Prepared","job_id":int(target) if kind=="cancel" else None,"parameters":parameters or {},"actor":actor}
         self.rows[row["id"]]=row
         return dict(row)
     def provision_revision(self, revision_id):return self.revisions.get(str(revision_id))
@@ -197,3 +197,27 @@ def test_cancel_scope_checks_fresh_session_identity():
         g.operation_jobs=frozenset({'VMware-safe'})
         await validate(g,None,'cancel','12')
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("level",[None,"Full","Incremental"])
+def test_manual_level_is_durable_and_sent_exactly_once(monkeypatch,level):
+    async def scenario():
+        g=FakeGateway();op=g.store.prepare("run","VMware-safe",uuid4(),parameters={"requestedLevel":level} if level else {})
+        sent=[]
+        def handle(request):
+            import json
+            body=json.loads(request.content)['jobControl'];sent.append(body)
+            assert body.get('level')==level
+            return httpx.Response(200,json={"jobid":12})
+        original=httpx.AsyncClient;monkeypatch.setattr('backend.operations.httpx.AsyncClient',lambda **kwargs:original(transport=httpx.MockTransport(handle)))
+        await dispatch(g,op);await dispatch(g,op);assert len(sent)==1
+    asyncio.run(scenario())
+
+def test_run_key_cannot_change_level_and_cancel_cannot_set_level(monkeypatch):
+    g=FakeGateway();monkeypatch.setattr(module,'gateway',lambda:g)
+    body={"kind":"run","target":"VMware-safe","idempotency_key":str(uuid4()),"confirmed":True,"level":"Full"}
+    c=TestClient(module.app);r=c.post('/api/operations',headers=HEADERS,json=body);assert r.status_code==202,r.text
+    assert r.json()['parameters']['requestedLevel']=='Full'
+    assert c.post('/api/operations',headers=HEADERS,json=body).json()['id']==r.json()['id']
+    body['level']='Incremental';assert c.post('/api/operations',headers=HEADERS,json=body).status_code==409
+    body.update(kind='cancel',target='12');assert c.post('/api/operations',headers=HEADERS,json=body).status_code==422

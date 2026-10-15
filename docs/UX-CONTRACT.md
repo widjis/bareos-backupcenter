@@ -86,7 +86,7 @@ Power off, disconnected network and Never overwrite are fixed review invariants,
 
 ## Accepted direct VMware restore workflow
 
-The earlier review-only slice is superseded for the root-approved PNET source. VMwareRestorePlan uses NativeSelectField for live dependent datacenter/folder/host/datastore choices; changing a parent clears dependent values and invalidates review. The real same-origin Admin APIs validate target topology, capacity, permission and collisions. Fixed off/no-NIC/Never policy is enforced by the root receipt/plugin at VM creation, not just displayed. Review enables a nested native confirmation with Go back initial focus. Same key/digest/destination survive uncertain delivery; no automatic resend. Submit/worker authorization remains authoritative. RecoveryInspection shows separately recorded execution/isolation/OS-boot proofs for that exact source point; app/guest-file validity is not inferred. Root source scope and single-datastore limitations are explicit. Shared typography/tokens/draft guard remain canonical.
+The earlier review-only slice is superseded for the seven root-approved managed VMware sources (actual restore/boot acceptance remains PNET-only). VMwareRestorePlan uses NativeSelectField for live dependent datacenter/folder/host/datastore choices; changing a parent clears dependent values and invalidates review. The real same-origin Admin APIs validate target topology, capacity, permission and collisions. Fixed off/no-NIC/Never policy is enforced by the root receipt/plugin at VM creation, not just displayed. Review enables a nested native confirmation with Go back initial focus. Same key/digest/destination survive uncertain delivery; no automatic resend. Submit/worker authorization remains authoritative. RecoveryInspection shows separately recorded execution/isolation/OS-boot proofs for that exact source point; app/guest-file validity is not inferred. Root source scope and single-datastore limitations are explicit. Shared typography/tokens/draft guard remain canonical.
 
 
 ## Restore progress panel
@@ -95,3 +95,10 @@ RestoreProgress owns the shared submitted/active-restore and session-detail vari
 
 
 Restore warning explanations preserve the native status. Only an explicit Warning log mentioning an existing MAC/UUID and generated replacement is classified as identity-change; other Warning entries remain unclassified and require review. Native text remains expandable. A generic terminal “with warnings” summary is not treated as an additional explanatory warning. History/drawer destination names come only from the exact restore JobId's journal record; unmapped jobs keep their native name. The drawer retains the underlying Bareos job name and search includes mapped destination names.
+
+
+## Manual level and active policy variants
+
+The canonical Run confirmation reuses NativeSelectField for Configured default/Full/Incremental. Initial focus is Go back. Editing level before submission retains the review key; after any send attempt selection is locked so explicit retry cannot mutate intent. Requested level is recorded separately from observed native level.
+
+ActivePolicySettings owns existing-job current/review/confirmed-apply/status. NativeSelectField/NativeDateField and auth-field inputs/policy-fields grid remain canonical. Native checkbox labels select explicit job scope; no job is selected automatically. The shared dirty guard covers all edited fields and clears only after confirmed/reconciled Applied. Native confirmation initially focuses Go back, blocks closing during delivery and retains unknown request identity. Known rejection allows correction; unknown delivery exposes status reconciliation instead of automatic resend. Live application is distinct from draft policy metadata and remains subject to the root helper's complete-chain retention invariants and source digest.

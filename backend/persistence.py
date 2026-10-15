@@ -106,6 +106,8 @@ class Store:
                 if existing:
                     if existing["kind"]!=kind or existing["target"]!=target:
                         raise ValueError("Idempotency key belongs to a different request")
+                    if kind=="run" and existing["parameters"].get("requestedLevel")!=(parameters or {}).get("requestedLevel"):
+                        raise ValueError("Idempotency key belongs to a different backup level")
                     return dict(existing)
                 cur.execute("SELECT id FROM operation_requests WHERE connection_id=%s AND kind=%s AND target=%s AND state IN ('Prepared','Dispatching','Accepted','Running','Unknown')",(self.connection_id,kind,target))
                 active=cur.fetchone()

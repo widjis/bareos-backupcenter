@@ -74,3 +74,14 @@ Dispatching claims lock/read the verified actor row within the journal transacti
 `BACKUPCENTER_OPERATION_DISPATCH_ENABLED=1` activates Run/Cancel. `BACKUPCENTER_OPERATION_JOBS` lists the six canonical VMware job names; an empty explicit list denies every job. Gateway defaults to those same six names when the setting is absent. Both API preparation and worker preflight enforce the scope; Cancel reads the current session name before authorizing it. `capabilities.operationJobs` drives the canonical table/drawer action controls. The temporary InstallSmokeTest exception used for acceptance has been removed. Restore dispatch is still independently disabled.
 
 Verification: 28 targeted backend/auth tests, four isolated browser tests, TypeScript checking, and a live-data browser check of enabled VM actions, excluded test jobs, and confirmation focus. The live browser check opened and dismissed confirmation without sending a production backup. Request journaling, no resend on unknown outcome, role recheck, configured defaults and existing pre-job storage guards remain intact.
+
+
+## Manual backup level
+
+Jobs → Run now → Backup level offers Configured default, Full and Incremental. Choose a level before confirming Run backup. Only this execution is affected; schedule/default level is unchanged. Bareos can promote an Incremental request to Full. After an uncertain submission, the selector locks and retries reuse the same key/level.
+
+## Applying an active schedule/retention policy
+
+Settings → Active backup schedule and retention shows current managed jobs. Select jobs, choose WITA time/automatic mode/new-volume retention/volume limit, Review active policy, then Apply reviewed policy and Apply policy. Draft policy records in the separate form are not applied through this flow. The reviewed digest protects against configuration changes between review and apply. Wait for active/waiting jobs to finish before applying. No backup or cleanup runs as part of Apply. Confirmed changes are syntax checked, reloaded and checked against Director/Catalog.
+
+Use Check application status with the displayed request ID after a timeout; do not create a new request to bypass an Unknown result. Root receipts retain before-images and outcome; unresolved outcomes block further applications. Old Volume retention minima remain and retirement uses the longer Pool/Volume window. No live policy-apply drill has been performed in this development session; current schedule/retention remains unchanged.

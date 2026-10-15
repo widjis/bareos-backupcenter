@@ -7,10 +7,10 @@ This is the canonical execution and progress tracker for Bareos Backup Center. P
 ## Current position
 
 - Local dashboard, authentication/roles, application persistence, monitoring, scoped Run/Cancel and VMware inventory are implemented. Services remain loopback-only.
-- PNET live onboarding, Full/Incremental, isolated VMDK restore and direct new-VM restore with an isolated OS-boot test have accepted evidence. Original PNET was preserved. Direct restore execution is root-scoped to VMware-PNET and supports one disk-datastore mapping, no NIC, power off and Never overwrite.
+- PNET live onboarding, Full/Incremental, isolated VMDK restore and direct new-VM restore with an isolated OS-boot test have accepted evidence. Original PNET was preserved. Direct restore execution is root-scoped to the seven managed VMware jobs; only PNET has actual restore/boot acceptance. It and supports one disk-datastore mapping, no NIC, power off and Never overwrite.
 - Restore progress polls current status/logs and explicitly delayed Catalog counters; a verified percentage/ETA is unavailable. Restore history uses exact journal-mapped VM destination names and distinguishes native warnings from explanatory classification.
 - Verification is recorded per slice below and in IMPLEMENTATION-REPORT.md. The latest full backend checkpoint is 100 passed with one POSIX-only module skipped on Windows; later focused changes have their own checks. Do not interpret an older full-suite checkpoint as a fresh full-release validation.
-- Current focus: restore usability and operator-visible evidence. General policy application/provisioning expansion, multi-datastore mappings, guest-file/application verification, production deployment/hardening and other unchecked tasks remain open.
+- Current focus: manual backup levels and reviewed active schedule/retention management; live policy-apply acceptance is separate. General policy application/provisioning expansion, multi-datastore mappings, guest-file/application verification, production deployment/hardening and other unchecked tasks remain open.
 - The full application roadmap is not complete. Accepted restore/boot evidence is scoped to recorded test VMs and does not verify every guest file or application.
 
 ## Tracking rules
@@ -501,3 +501,16 @@ Current slice: P06-027/028. No console restore command is used for preview, sinc
 - [x] **P06-033** — Explain observed native restore warnings and label restore history/drawers with the exact journal-mapped destination VM; keep unmapped native names and unrecognized warnings explicit. Verify without new restore execution.
 
 - 2026-10-15: P06-033 verified. Exact restore JobId journal mappings label History/search/drawer with the destination VM while preserving the native job name. Progress explains explicit MAC/UUID regeneration warnings and keeps other warnings unclassified. Four backend tests, two browser tests and TypeScript passed. Read-only live JobIds 27/28 each showed zero errors and two identity-change warnings. No new restore or VM power action was issued.
+
+- [x] **P04-034** — Add confirmed manual Full/Incremental selection with durable level-bound idempotency, typed native dispatch and preserved configured default; verify without a production backup run.
+
+- [x] **P08-001A** — Implement confirmed existing-job schedule/Pool policy application with root receipts, source digest validation, no active jobs, syntax/rollback and retention-helper integration. Installation/preview and live policy-apply acceptance remain separate.
+
+- [ ] **P08-001B** — Accept a specifically reviewed live policy Apply and its resulting Director/Catalog state. Not run: the operator has not selected/confirmed a policy change; current seven-job settings remain unchanged.
+- 2026-10-15: P04-034 implemented and verified through typed native schema inspection, durable requestedLevel binding and simulated dispatch/browser tests. P08-001A now supplies scoped current/review/confirmed-apply/status APIs and Settings UI, root receipts, unknown-outcome blocking, file validation/rollback, per-Pool/Volume retention handling and post-apply verification. 117 backend tests passed (one POSIX-only module skipped), seven operation/policy browser tests passed and TypeScript passed. Isolated server fixtures verified writes/replay/rollback with console calls mocked; seven original plus three per-window retention fixtures passed. Actual Director parsed generated schedules in -t mode. Read-only seven-job preview and Catalog verifier query succeeded. No real policy Apply, backup, restore or cleanup ran. P08-001B remains open; later restore expansion/multi-datastore/server deployment work remains pending.
+
+## Restore scope expansion — 2026-10-15
+
+- [x] **P06-034A** — Extend the root direct-restore allowlist to all seven managed VMware jobs, retaining isolated new-VM constraints. Root-owned mode 0600 allowlist installed with rollback copy.
+- [x] **P06-034B** — Read-only preflight each latest successful recovery point; record failures separately from restore execution.
+- [ ] **P06-034C** — Actual restore and guest acceptance for the six additional VMs; requires a selected test destination and execution request.

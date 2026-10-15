@@ -93,3 +93,5 @@ VMware uses the approved tree/table layout and the same table/search primitives.
 Direct VMware restore destination review extends the existing recovery dialog with the canonical two-column policy-fields layout (one column at narrow widths), auth-field inputs and shared discard confirmation. Preserve current typography/colors; no new visual tokens. Review and execution remain distinct product states.
 
 The direct VMware review variant now has native live destination selectors, a nested confirmation and a per-recovery-point restore-test evidence section. Runtime colors/layout remain unchanged. Execution warnings, isolation proof and OS-boot proof are shown separately; source scope is visible.
+
+Active existing-job policy uses the existing panel, policy-fields grid, auth-field inputs, native selectors/time input and confirmation styling. It appears separately from draft policy metadata. Manual Run level uses the same select owner; no new visual tokens are introduced.

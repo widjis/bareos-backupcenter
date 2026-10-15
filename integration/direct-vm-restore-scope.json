@@ -1,0 +1,11 @@
+{
+  "jobs": [
+    "VMware-MTIMRWZTNA01",
+    "VMware-MTIMRWPGSQL01",
+    "VMware-MTIMRWNTP02",
+    "VMware-MTIMRWNTP01",
+    "VMware-MTIMRWKF01",
+    "VMware-MTIMRWCNTDEV",
+    "VMware-PNET"
+  ]
+}

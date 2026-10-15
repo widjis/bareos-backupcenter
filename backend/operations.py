@@ -105,7 +105,12 @@ async def dispatch(gateway, operation):
                 # Authenticated during preflight; do not resend or renew/retry this mutation.
                 headers={"Authorization":"Bearer "+gateway.token}
                 if operation["kind"]=="run":
-                    response=await client.post(gateway.base+"/control/jobs/run",headers=headers,json={"jobControl":{"job":operation["target"],"comment":"backupcenter-"+str(operation["id"])}})
+                    control={"job":operation["target"],"comment":"backupcenter-"+str(operation["id"])}
+                    level=operation.get("parameters",{}).get("requestedLevel")
+                    if level is not None:
+                        if level not in ("Full","Incremental"):raise ValueError("Unsupported requested backup level")
+                        control["level"]=level
+                    response=await client.post(gateway.base+"/control/jobs/run",headers=headers,json={"jobControl":control})
                 elif operation["kind"]=="restore":
                     await asyncio.to_thread(prepare_target,int(operation["target"]),str(operation["idempotency_key"]))
                     response=await client.post(gateway.base+"/backupcenter/restore/vm-disks",headers=headers,json={"job_id":int(operation["target"]),"request_id":str(operation["idempotency_key"]),"confirmed":True})
