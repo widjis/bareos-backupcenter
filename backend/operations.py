@@ -103,8 +103,16 @@ async def dispatch(gateway, operation):
                     "definition":revision["payload"].get("definition"),
                     "actor":operation["actor"],
                 })
-                await asyncio.to_thread(store.finish_lifecycle,operation["target"],operation["actor"],"Validated",result)
-                await asyncio.to_thread(store.transition,operation["id"],["Dispatching"],"Completed",None,result.get("message") or "Lifecycle apply completed.")
+                outcome = result.get("state")
+                if outcome == "Applied":
+                    await asyncio.to_thread(store.finish_lifecycle,operation["target"],operation["actor"],"Validated",result)
+                    await asyncio.to_thread(store.transition,operation["id"],["Dispatching"],"Completed",None,result.get("message") or "Lifecycle apply completed.")
+                    gateway.cached_at=float("-inf")
+                elif outcome == "Failed":
+                    await asyncio.to_thread(store.finish_lifecycle,operation["target"],operation["actor"],"Failed",result)
+                    await asyncio.to_thread(store.transition,operation["id"],["Dispatching"],"Failed",None,"Lifecycle change failed; helper reports the original configuration was restored.")
+                else:
+                    await asyncio.to_thread(store.transition,operation["id"],["Dispatching"],"Unknown",None,"Lifecycle outcome is unresolved. Reconcile the helper receipt before another request.")
             except Exception:
                 await asyncio.to_thread(store.finish_lifecycle,operation["target"],operation["actor"],"Failed",{"message":"Lifecycle apply outcome unknown. Inspect the server receipt before retrying."})
                 await asyncio.to_thread(store.transition,operation["id"],["Dispatching"],"Unknown",None,"Lifecycle apply outcome unknown. Inspect the server receipt before retrying; this request will not be resent.")

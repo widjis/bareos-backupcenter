@@ -190,3 +190,84 @@ test("remove review keeps retained backups explicit and blocks destructive execu
     dialog.getByRole("button", { name: "Delete configuration", exact: true }),
   ).toBeDisabled();
 });
+
+test("clone review carries the selected VM and new repository", async ({
+  page,
+}) => {
+  await routeJobs(page);
+  let body: any;
+  await page.route("**/api/jobs/lifecycle/clone/review", async (route) => {
+    body = route.request().postDataJSON();
+    await route.fulfill({
+      json: {
+        jobName: "VMware-PNET",
+        action: "clone_job",
+        readiness: "blocked",
+        reviewDigest: "a".repeat(64),
+        proofRevision: 0,
+        executionSupported: false,
+        summary: "Installed clone helper is unavailable.",
+        blockers: [
+          {
+            code: "not_installed",
+            summary: "Installed clone helper is unavailable.",
+          },
+        ],
+        impacts: [],
+      },
+    });
+  });
+  await page.goto("/?view=jobs&q=VMware-PNET");
+  await page
+    .getByRole("button", { name: "Clone VMware-PNET", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Review clone draft" });
+  await dialog.getByLabel("New clone job name").fill("VMware-LAB");
+  await dialog
+    .getByLabel("Target VM instance UUID")
+    .fill("22222222-2222-2222-2222-222222222222");
+  await dialog.getByLabel("New repository ID").fill("repo-LAB");
+  await dialog
+    .getByRole("button", { name: "Review clone", exact: true })
+    .click();
+  await expect(dialog).toContainText("Installed clone helper is unavailable.");
+  expect(body).toEqual({
+    sourceJobName: "VMware-PNET",
+    newJobName: "VMware-LAB",
+    newVmUuid: "22222222-2222-2222-2222-222222222222",
+    repositoryId: "repo-LAB",
+  });
+});
+
+test("a contradictory ready response with blockers cannot execute", async ({
+  page,
+}) => {
+  await routeJobs(page);
+  await page.route("**/api/jobs/lifecycle/disable/review", (route) =>
+    route.fulfill({
+      json: {
+        jobName: "VMware-PNET",
+        action: "disable_schedule",
+        readiness: "candidate_ready",
+        reviewDigest: "b".repeat(64),
+        proofRevision: 7,
+        executionSupported: true,
+        summary: "Review",
+        blockers: [
+          { code: "active_job", summary: "A backup is still active." },
+        ],
+        impacts: [],
+      },
+    }),
+  );
+  await page.goto("/?view=jobs&q=VMware-PNET");
+  await page
+    .getByRole("button", { name: "Disable VMware-PNET", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Review disable schedule" });
+  await expect(dialog).toContainText("A backup is still active.");
+  await dialog.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Disable schedule", exact: true }),
+  ).toBeDisabled();
+});

@@ -261,7 +261,13 @@ def lifecycle_env(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.lifecycle_target._platform_supported", lambda: True)
     monkeypatch.setattr("backend.lifecycle_target._load_helper_module", lambda: helper)
     monkeypatch.setattr(helper, "_load_policy_module", lambda: policy)
+    Path(policy.__file__).write_text("# explicit policy fixture\n")
+    resource_file = tmp_path / "fixture_resource_executor.py"
+    resource_file.write_text("# explicit resource fixture\n")
+    resource = SimpleNamespace(__file__=str(resource_file), describe_capabilities=lambda: {"installedReady": True, "transportReady": True, "rootReady": True})
+    monkeypatch.setattr(helper, "_load_resource_module", lambda: resource)
     monkeypatch.setattr(helper, "_load_lock_module", lambda: FakeLock)
+    monkeypatch.setattr(helper, "_require_root", lambda: None)
     monkeypatch.setattr(helper, "_fsync_dir", lambda path: None)
     monkeypatch.setattr(helper, "ROOT", tmp_path / "receipts")
     monkeypatch.setattr(helper, "LOCK", tmp_path / "lock")
@@ -271,9 +277,12 @@ def lifecycle_env(tmp_path, monkeypatch):
 
 def test_disable_preview_preserves_old_shape_and_blocks_without_helper_transport(monkeypatch):
     monkeypatch.setattr("backend.lifecycle_target._platform_supported", lambda: False)
+    def unavailable(body):
+        raise RuntimeError("Native transport unavailable.")
+    monkeypatch.setattr("backend.lifecycle_target._run_remote", unavailable)
     caps = candidate_capabilities({"BACKUPCENTER_LIFECYCLE_APPLY_ENABLED": "1"})
     assert caps["applyEnabled"] is False
-    assert "POSIX" in caps["liveApplyBlocker"]
+    assert caps["liveApplyBlocker"] == "Native transport unavailable."
 
 
 def test_disable_review_exposes_digest_alias(lifecycle_env):
@@ -320,7 +329,13 @@ def test_api_worker_helper_disable_then_enable_round_trip(lifecycle_env):
 def test_real_helper_after_job_retry_round_trip(tmp_path, monkeypatch):
     policy, definition = _prepare_policy(tmp_path, "after_job")
     monkeypatch.setattr(helper, "_load_policy_module", lambda: policy)
+    Path(policy.__file__).write_text("# explicit policy fixture\n")
+    resource_file = tmp_path / "fixture_resource_executor.py"
+    resource_file.write_text("# explicit resource fixture\n")
+    resource = SimpleNamespace(__file__=str(resource_file), describe_capabilities=lambda: {"installedReady": True, "transportReady": True, "rootReady": True})
+    monkeypatch.setattr(helper, "_load_resource_module", lambda: resource)
     monkeypatch.setattr(helper, "_load_lock_module", lambda: FakeLock)
+    monkeypatch.setattr(helper, "_require_root", lambda: None)
     monkeypatch.setattr(helper, "_fsync_dir", lambda path: None)
     monkeypatch.setattr(helper, "ROOT", tmp_path / "receipts")
     monkeypatch.setattr(helper, "LOCK", tmp_path / "lock")
@@ -359,7 +374,13 @@ def test_real_helper_after_job_retry_round_trip(tmp_path, monkeypatch):
 def test_helper_rollback_and_idempotency_are_durable(tmp_path, monkeypatch):
     policy, _ = _prepare_policy(tmp_path, "calendar")
     monkeypatch.setattr(helper, "_load_policy_module", lambda: policy)
+    Path(policy.__file__).write_text("# explicit policy fixture\n")
+    resource_file = tmp_path / "fixture_resource_executor.py"
+    resource_file.write_text("# explicit resource fixture\n")
+    resource = SimpleNamespace(__file__=str(resource_file), describe_capabilities=lambda: {"installedReady": True, "transportReady": True, "rootReady": True})
+    monkeypatch.setattr(helper, "_load_resource_module", lambda: resource)
     monkeypatch.setattr(helper, "_load_lock_module", lambda: FakeLock)
+    monkeypatch.setattr(helper, "_require_root", lambda: None)
     monkeypatch.setattr(helper, "_fsync_dir", lambda path: None)
     monkeypatch.setattr(helper, "ROOT", tmp_path / "receipts")
     monkeypatch.setattr(helper, "LOCK", tmp_path / "lock")
@@ -406,6 +427,7 @@ def test_missing_dependency_is_fail_closed(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.lifecycle_target._load_helper_module", lambda: helper)
     monkeypatch.setattr(helper, "_load_policy_module", lambda: (_ for _ in ()).throw(RuntimeError("Lifecycle helper dependency unavailable: fake.")))
     monkeypatch.setattr(helper, "_load_lock_module", lambda: FakeLock)
+    monkeypatch.setattr(helper, "_require_root", lambda: None)
     monkeypatch.setattr(helper, "_fsync_dir", lambda path: None)
     caps = candidate_capabilities({"BACKUPCENTER_LIFECYCLE_APPLY_ENABLED": "1"})
     assert caps["applyEnabled"] is False

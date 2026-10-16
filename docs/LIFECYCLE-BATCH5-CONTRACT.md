@@ -78,7 +78,7 @@ Disable must suppress automatic calendar, after-job, and retry delivery without 
 
 Reuse existing:
 
-- `GET /api/policies/active/current?jobName=...`
+- `GET /api/policies/active`
 - `POST /api/policies/active/preview`
 - `POST /api/policies/active/apply`
 
@@ -126,3 +126,11 @@ Removal must create the retirement record first, block on unsupported dependenci
 Frontend should continue using the existing durable operation/result patterns. `Unknown` delivery remains a reconciliation state, not success and not permission to resend automatically.
 
 This slice also exposes `GET /api/jobs/lifecycle/status/{requestId}` for the durable disable/enable candidate receipt.
+
+## Integrated local checkpoint
+
+The main application now registers clone/removal review, apply and retired lookup routes from `backend/lifecycle_extra_api.py`. Clone review additionally accepts `newVmUuid` and `repositoryId`; both are needed for execution. The current candidate supports only `VMware-<Label>` with a dedicated `repo-<Label>` target. Missing selection produces a blocked review, not inferred VM/repository ownership.
+
+Receipt reconciliation uses request keys: `GET /api/jobs/lifecycle/status/{requestId}` for Disable/Enable, `GET /api/jobs/lifecycle/clone/status/{requestId}` and `/remove/status/{requestId}` for the other actions. Status responses exclude native before-images and configuration. Clone/removal service outcomes are normalized by the dashboard; Unknown/Dispatching remain unresolved and cannot be automatically resent.
+
+Production collection, clone/removal durable adapters and executors are not installed or activated by this checkpoint. The browser cannot supply authoritative proof or readiness flags. Windows native lifecycle transport remains unavailable; setting an environment flag alone does not establish readiness. General policy Apply remains disabled. See LIFECYCLE-LOCAL-ACCEPTANCE.md for actual evidence and remaining gates.

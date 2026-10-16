@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -56,7 +56,7 @@ class CloneApplyRequest(CloneReviewRequest):
     idempotency_key: UUID = Field(alias="idempotencyKey")
     review_digest: str = Field(alias="reviewDigest", pattern=r"^[0-9a-f]{64}$")
     proof_revision: int = Field(alias="proofRevision", ge=1, le=1_000_000_000)
-    confirmed: bool = Field(default=False)
+    confirmed: Literal[True]
 
 
 class RetirementReviewRequest(BaseModel):
@@ -68,7 +68,7 @@ class RetirementApplyRequest(RetirementReviewRequest):
     idempotency_key: UUID = Field(alias="idempotencyKey")
     review_digest: str = Field(alias="reviewDigest", pattern=r"^[0-9a-f]{64}$")
     proof_revision: int = Field(alias="proofRevision", ge=1, le=1_000_000_000)
-    confirmed: bool = Field(default=False)
+    confirmed: Literal[True]
 
 
 def _digest(payload: Any) -> str:
@@ -260,13 +260,13 @@ def create_lifecycle_extra_router(get_gateway) -> APIRouter:
     router = APIRouter()
 
     @router.post("/api/jobs/lifecycle/clone/review")
-    async def clone_review(body: CloneReviewRequest, request: Request):
+    def clone_review(body: CloneReviewRequest, request: Request):
         _require_admin(request)
         _require_confirmed_post(request)
         return _clone_review(get_gateway(), body, request.state.user["role"])
 
     @router.post("/api/jobs/lifecycle/clone", status_code=202)
-    async def clone_apply(body: CloneApplyRequest, request: Request):
+    def clone_apply(body: CloneApplyRequest, request: Request):
         _require_admin(request)
         _require_confirmed_post(request)
         if body.confirmed is not True:
@@ -321,13 +321,13 @@ def create_lifecycle_extra_router(get_gateway) -> APIRouter:
             raise HTTPException(409, "Clone apply is unavailable. No authoritative write was started.")
 
     @router.post("/api/jobs/lifecycle/remove/review")
-    async def remove_review(body: RetirementReviewRequest, request: Request):
+    def remove_review(body: RetirementReviewRequest, request: Request):
         _require_admin(request)
         _require_confirmed_post(request)
         return _remove_review(get_gateway(), body.job_name, request.state.user["role"])
 
     @router.post("/api/jobs/lifecycle/remove", status_code=202)
-    async def remove_apply(body: RetirementApplyRequest, request: Request):
+    def remove_apply(body: RetirementApplyRequest, request: Request):
         _require_admin(request)
         _require_confirmed_post(request)
         if body.confirmed is not True:
@@ -363,7 +363,7 @@ def create_lifecycle_extra_router(get_gateway) -> APIRouter:
             raise HTTPException(409, "Retirement apply is unavailable. No authoritative write was started.")
 
     @router.get("/api/jobs/lifecycle/retired")
-    async def retired(request: Request, jobName: str = Query(pattern=r"^[A-Za-z0-9_.-]{1,128}$")):
+    def retired(request: Request, jobName: str = Query(pattern=r"^[A-Za-z0-9_.-]{1,128}$")):
         _require_admin(request)
         gateway = get_gateway()
         try:
@@ -375,5 +375,27 @@ def create_lifecycle_extra_router(get_gateway) -> APIRouter:
         if not result:
             raise HTTPException(404, "Retired-job discovery not found.")
         return result
+
+    @router.get("/api/jobs/lifecycle/clone/status/{request_id}")
+    def clone_status(request_id: UUID, request: Request):
+        _require_admin(request)
+        try:
+            record = get_gateway().store.get_intent(str(request_id))
+        except Exception:
+            raise HTTPException(503, "Clone receipt is unavailable. Reconcile before another request.")
+        if not record:
+            raise HTTPException(404, "Clone receipt not found.")
+        return {"id": str(request_id), "state": record.get("state", "Unknown"), "kind": "clone", "target": record.get("newJobName", ""), "parameters": {"message": (record.get("response") or {}).get("summary", "Reconcile the clone receipt before another request.")}}
+
+    @router.get("/api/jobs/lifecycle/remove/status/{request_id}")
+    def remove_status(request_id: UUID, request: Request):
+        _require_admin(request)
+        try:
+            record = get_gateway().store.load_retirement_operation(str(request_id))
+        except Exception:
+            raise HTTPException(503, "Retirement receipt is unavailable. Reconcile before another request.")
+        if not record:
+            raise HTTPException(404, "Retirement receipt not found.")
+        return {"id": str(request_id), "state": record.get("state") or {"applied": "Applied", "failed": "Failed", "unknown": "Unknown", "prepared": "Prepared"}.get((record.get("result") or {}).get("readiness"), "Unknown"), "kind": "remove", "target": (record.get("intent") or {}).get("jobName", ""), "parameters": {"message": (record.get("result") or {}).get("summary", "Reconcile the retirement receipt before another request.")}}
 
     return router

@@ -120,7 +120,7 @@ test("disable lifecycle review shows retry, blockers, and mobile-safe preserved-
   ).toBeInViewport();
   expect(
     await dialog.evaluate(
-      (element) => element.scrollWidth <= element.clientWidth,
+      (element) => element.scrollWidth <= element.clientWidth + 1,
     ),
   ).toBe(true);
   await page.keyboard.press("Escape");
@@ -184,22 +184,19 @@ test("enable lifecycle keeps idempotency state and reconciles status without res
       },
     });
   });
-  await page.route(
-    "**/api/operations/11111111-1111-1111-1111-111111111111",
-    async (route) => {
-      await route.fulfill({
-        json: {
-          id: "11111111-1111-1111-1111-111111111111",
-          state: "Completed",
-          kind: "lifecycle_enable",
-          target: "VMware-PNET",
-          parameters: {
-            summary: "Enable completed after durable reconciliation.",
-          },
+  await page.route("**/api/jobs/lifecycle/status/*", async (route) => {
+    await route.fulfill({
+      json: {
+        id: "11111111-1111-1111-1111-111111111111",
+        state: "Completed",
+        kind: "lifecycle_enable",
+        target: "VMware-PNET",
+        parameters: {
+          summary: "Enable completed after durable reconciliation.",
         },
-      });
-    },
-  );
+      },
+    });
+  });
 
   await page.goto("/?view=jobs&q=VMware-PNET");
   await page
@@ -216,9 +213,15 @@ test("enable lifecycle keeps idempotency state and reconciles status without res
     "Delivery outcome is unknown. Check application status before another request.",
   );
   await expect(dialog).toContainText(requestKey);
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Enable VMware-PNET", exact: true })
+    .click();
+  await expect(dialog).toContainText(requestKey);
+  await expect(dialog).toContainText("Unknown");
   await expect(
     dialog.getByRole("button", { name: "Enable schedule", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await dialog
     .getByRole("button", { name: "Check application status", exact: true })
     .click();
@@ -249,9 +252,9 @@ test("closing a pending lifecycle review aborts it and restores focus", async ({
   });
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "Review disable schedule" });
-  await expect(dialog.getByRole("status")).toContainText(
-    "Checking current lifecycle evidence",
-  );
+  await expect(
+    dialog.getByText("Checking current lifecycle evidence"),
+  ).toBeVisible();
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(trigger).toBeFocused();

@@ -54,3 +54,9 @@ Follow [IMPLEMENTATION-ROADMAP.md](IMPLEMENTATION-ROADMAP.md). The PNET-only liv
 - [Lifecycle proof normalization](LIFECYCLE-PROOF.md)
 
 - [Installed helper and controlled PNET acceptance](HELPER-SYNC-ACCEPTANCE.md)
+
+- [Lifecycle local implementation and remaining acceptance](LIFECYCLE-LOCAL-ACCEPTANCE.md)
+
+- [Managed live-job identity registry](MANAGED-REGISTRY.md)
+- [Durable lifecycle PostgreSQL persistence](LIFECYCLE-PERSISTENCE.md)
+- [Production lifecycle collectors](LIFECYCLE-COLLECTORS.md)

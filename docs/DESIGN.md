@@ -107,3 +107,7 @@ Extend the existing policy form rather than create a parallel editor. The Jobs r
 ## Disable schedule review variant
 
 Jobs uses the existing compact row action and native restore-confirm/account-confirm modal presentation. Reuse established tokens and keyboard/focus behavior. The read-only variant wraps text normally even inside nowrap table cells and scrolls within the visual viewport; it offers Close/Refresh review without an execution action.
+
+## Lifecycle review integration
+
+Lifecycle dialogs reuse the existing navy/blue operational palette, controls and native modal focus behavior. Delete config is visually separated with a danger outline and retains an explicit backup-preservation explanation. Technical review references are collapsed; unresolved outcomes retain visible receipt status. No new token system was introduced. See UX-CONTRACT.md and LIFECYCLE-LOCAL-ACCEPTANCE.md for accepted local behavior and production limitations.

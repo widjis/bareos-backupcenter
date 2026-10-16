@@ -38,9 +38,7 @@ test("live data, navigation, filtering, session details, accessibility and mobil
   await expect(jobHeader).toHaveAttribute("aria-sort", "descending");
   await page.screenshot({ path: ".local/jobs-desktop.png", fullPage: true });
   await page.getByRole("link", { name: "History", exact: true }).click();
-  const link = page
-    .getByRole("button", { name: "VMware-MTIMRWZTNA01" })
-    .first();
+  const link = page.getByRole("button", { name: /^VMware-/ }).first();
   await link.click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByText("Loading session log…")).not.toBeVisible({

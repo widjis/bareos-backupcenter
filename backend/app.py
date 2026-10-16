@@ -166,9 +166,17 @@ class Gateway:
         self.lock = asyncio.Lock()
         self.cached = None
         self.cached_at = float("-inf")
-        self.store = Store()
+        from backend.lifecycle_foundations import compose_lifecycle_store
+        self.store, self.lifecycle_registry = compose_lifecycle_store(Store())
+        from backend.lifecycle_foundations import configure_lifecycle_components
+        configure_lifecycle_components(self)
         self.restored_cache = False
         self.persistence = {"state": "not-configured" if not self.store.configured else "initializing"}
+
+    @property
+    def lifecycle_extra_readiness(self):
+        from backend.lifecycle_foundations import production_extra_readiness
+        return production_extra_readiness(self)
 
     def redact(self, text):
         for key, value in self.values.items():
@@ -290,7 +298,7 @@ def gateway():
 async def operational_boundary(request, call_next):
     from fastapi.responses import JSONResponse
     from backend import auth
-    allowed_posts={"/api/jobs/disable/preview","/api/jobs/lifecycle/disable/review","/api/jobs/lifecycle/disable","/api/jobs/lifecycle/enable/review","/api/jobs/lifecycle/enable","/api/operations","/api/auth/login","/api/auth/logout","/api/auth/password","/api/users","/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies/active/preview","/api/policies/active/apply","/api/policies"}
+    allowed_posts={"/api/jobs/disable/preview","/api/jobs/lifecycle/disable/review","/api/jobs/lifecycle/disable","/api/jobs/lifecycle/enable/review","/api/jobs/lifecycle/enable","/api/jobs/lifecycle/clone/review","/api/jobs/lifecycle/clone","/api/jobs/lifecycle/remove/review","/api/jobs/lifecycle/remove","/api/operations","/api/auth/login","/api/auth/logout","/api/auth/password","/api/users","/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies/active/preview","/api/policies/active/apply","/api/policies"}
     mutation=request.method=="POST" and (request.url.path in allowed_posts or request.url.path.startswith("/api/users/") or (request.url.path.startswith("/api/alerts/") and request.url.path.endswith("/ack")))
     if request.method not in ("GET", "HEAD") and not mutation:
         return JSONResponse({"detail": "This operation is not enabled."}, status_code=405)
@@ -874,8 +882,14 @@ class LifecycleApplyRequest(LifecycleReviewRequest):
 
 
 def _lifecycle_scope(g, job_name):
-    if job_name not in getattr(g, "operation_jobs", set()):
-        raise HTTPException(409, "Job is outside the managed scope.")
+    if not re.fullmatch(r"VMware-[A-Za-z0-9_.-]{1,80}", job_name):
+        raise HTTPException(409, "Job is outside the managed lifecycle scope.")
+    try:
+        assignment = g.store.assignment_detail(job_name)
+    except Exception:
+        raise HTTPException(503, "Managed lifecycle identity is unavailable.")
+    if not assignment or assignment.get("job_name", job_name) != job_name:
+        raise HTTPException(409, "Managed lifecycle identity is not registered for this job.")
 
 
 async def _disable_review(job_name: str, request: Request):
@@ -961,3 +975,29 @@ async def lifecycle_status(request_id: UUID, request: Request):
     if not row:
         raise HTTPException(404, "Lifecycle receipt not found.")
     return row
+
+
+from backend.lifecycle_extra_api import create_lifecycle_extra_router
+app.include_router(create_lifecycle_extra_router(lambda: gateway()))
+
+
+@app.get("/api/jobs/lifecycle/registry")
+async def lifecycle_managed_registry(request: Request):
+    if request.state.user["role"] != "Admin":
+        raise HTTPException(403, "Administrator permission required.")
+    try:
+        rows = await asyncio.to_thread(gateway().lifecycle_registry.enumerate_entries)
+    except Exception:
+        raise HTTPException(503, "Managed registry is unavailable; no job settings changed.")
+    return {"jobs": [{"stableId": str(row["stable_id"]), "jobName": row["job_name"], "vmInstanceUuid": row["instance_uuid"], "repositoryId": row["repository_id"], "revision": row["revision"], "lifecycleState": row["lifecycle_state"]} for row in rows[:1000]], "count": len(rows), "limit": 1000, "truncated": len(rows) > 1000}
+
+
+@app.get("/api/jobs/lifecycle/foundations")
+async def lifecycle_foundations_status(request: Request):
+    if request.state.user["role"] != "Admin":
+        raise HTTPException(403, "Administrator permission required.")
+    from backend.lifecycle_foundations import database_foundation_status
+    from backend.lifecycle_target import candidate_capabilities
+    g = gateway()
+    database, native = await asyncio.gather(asyncio.to_thread(database_foundation_status, g.store), asyncio.to_thread(candidate_capabilities, g.values))
+    return {"database": database, "native": {key: native.get(key) for key in ("installedReady", "applyEnabled", "liveApplyBlocker")}, "productionAcceptance": "pending"}

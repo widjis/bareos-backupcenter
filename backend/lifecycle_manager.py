@@ -22,7 +22,7 @@ def _impact(code, severity, summary):
 
 def _assignment_snapshot(assignment, job_name, proof_revision):
     return {
-        "stable_id": str(assignment["inventory_vm_id"]),
+        "stable_id": str(assignment.get("stable_id") or assignment["inventory_vm_id"]),
         "job_name": job_name,
         "selection_revision": proof_revision,
         "snapshot_revision": proof_revision,
@@ -131,7 +131,12 @@ def review_disable(store, values, job_name, trusted_role):
 
 def review_enable(store, values, job_name, trusted_role):
     caps = candidate_capabilities(values)
-    current = _current(job_name)
+    try:
+        current = _current(job_name)
+    except Exception:
+        payload = {"jobName": job_name, "action": "enable_schedule", "readiness": "blocked", "proofRevision": 0, "blockers": [_block("missing_native_proof", "The installed lifecycle helper and its current job state are unavailable.")], "impacts": [], "summary": "Enable requires the installed lifecycle helper and a verified prior disable receipt.", "executionSupported": False, **caps}
+        payload["reviewDigest"] = _digest(payload)
+        return payload
     revision = store.latest_lifecycle_revision(job_name)
     blockers = []
     if not revision or revision["state"] != "Validated" or revision["payload"].get("action") != "disable":

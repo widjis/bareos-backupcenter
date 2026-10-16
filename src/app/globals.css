@@ -1599,6 +1599,7 @@ pre {
 .account-confirm .dialog-actions {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
   margin-top: 24px;
 }
 .inventory-results table {

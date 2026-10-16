@@ -118,3 +118,9 @@ The server-owned live policy capability requires both the configured feature fla
 ## Disable schedule review
 
 Jobs exposes Admin-only `Review disable` for managed Backup jobs. DisablePreview reuses the existing native modal / restore-confirm / account-confirm styling and focus-restoration contract. Review POST accepts only a job name; server owns scope, identity and evidence. Loading, timeout, retry and explicit missing-proof states do not enable execution. Close/Escape restores focus to the trigger; no Disable confirmation or mutation is offered. Existing backups are preserved. Evidence: tests/disable-preview.spec.ts and backend/tests/test_disable_preview_api.py.
+
+## Lifecycle candidate workflows
+
+`JobLifecycleAction` in `src/components/job-lifecycle.tsx` owns the shared Disable/Enable/Clone/configuration-removal dialog using the established native dialog/focus behavior. The existing ActivePolicy owner remains the sole per-job schedule editor. Lifecycle actions are review-first and do not inherit the Run/Cancel authorization list. Server-side persisted identities and current proof decide scope and execution.
+
+Technical review references are collapsed. Deletion explicitly preserves backup data; no data-deletion control exists here. Clone has explicit target VM/repository fields and starts disabled. Execution requires supported readiness with no blockers. Unknown outcomes retain their request key across close/reopen and expose receipt reconciliation, never automatic resend. Live collectors/store/executors are still unaccepted; the current checkpoint is documented in LIFECYCLE-LOCAL-ACCEPTANCE.md. Existing job identity/VM/repository editing remains unsupported.

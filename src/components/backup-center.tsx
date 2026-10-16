@@ -1161,17 +1161,27 @@ export default function BackupCenter() {
                       <div className="row-actions">
                         {identity?.role === "Admin" &&
                           j.type === "Backup" &&
-                          jobInScope(j.name) && (
-                            <JobLifecycleAction
-                              action={j.enabled ? "disable" : "enable"}
-                              jobName={j.name}
-                              onApplied={() => refresh(true)}
-                            />
+                          j.name.startsWith("VMware-") && (
+                            <>
+                              <JobLifecycleAction
+                                key={`disable:${j.name}`}
+                                action="disable"
+                                jobName={j.name}
+                                onApplied={() => refresh(true)}
+                              />
+                              <JobLifecycleAction
+                                key={`enable:${j.name}`}
+                                action="enable"
+                                jobName={j.name}
+                                onApplied={() => refresh(true)}
+                              />
+                            </>
                           )}
                         {identity?.role === "Admin" &&
                           j.type === "Backup" &&
-                          jobInScope(j.name) && (
+                          j.name.startsWith("VMware-") && (
                             <JobLifecycleAction
+                              key={`clone:${j.name}`}
                               action="clone"
                               jobName={j.name}
                               onApplied={() => refresh(true)}
@@ -1179,8 +1189,9 @@ export default function BackupCenter() {
                           )}
                         {identity?.role === "Admin" &&
                           j.type === "Backup" &&
-                          jobInScope(j.name) && (
+                          j.name.startsWith("VMware-") && (
                             <JobLifecycleAction
+                              key={`remove:${j.name}`}
                               action="remove"
                               jobName={j.name}
                               onApplied={() => refresh(true)}

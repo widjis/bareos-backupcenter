@@ -112,6 +112,7 @@ function normalizeReview(
     typeof reviewDigest !== "string" ||
     !/^[0-9a-f]{64}$/.test(reviewDigest) ||
     typeof proofRevision !== "number" ||
+    value?.jobName !== jobName ||
     !blockers ||
     !impacts ||
     typeof value?.executionSupported !== "boolean"
@@ -200,7 +201,9 @@ export function JobLifecycleAction({
   const [step, setStep] = useState<"form" | "review" | "confirm" | "result">(
     action === "clone" ? "form" : "review",
   );
-  const [cloneName, setCloneName] = useState(`${jobName} Copy`);
+  const [cloneName, setCloneName] = useState(`${jobName}-CLONE`);
+  const [cloneVmUuid, setCloneVmUuid] = useState("");
+  const [cloneRepository, setCloneRepository] = useState("");
   const [review, setReview] = useState<ReviewResult | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
@@ -214,6 +217,10 @@ export function JobLifecycleAction({
     review &&
     review.executionSupported &&
     review.readiness === "candidate_ready" &&
+    review.blockers.length === 0 &&
+    (action !== "remove" || review.preserveBackupData === true) &&
+    (action !== "clone" ||
+      Boolean(cloneVmUuid.trim() && cloneRepository.trim())) &&
     !attempted,
   );
   const payload = useMemo(() => {
@@ -221,10 +228,14 @@ export function JobLifecycleAction({
       return {
         sourceJobName: jobName,
         newJobName: cloneName.trim(),
+        ...(cloneVmUuid.trim() ? { newVmUuid: cloneVmUuid.trim() } : {}),
+        ...(cloneRepository.trim()
+          ? { repositoryId: cloneRepository.trim() }
+          : {}),
       };
     }
     return { jobName };
-  }, [action, cloneName, jobName]);
+  }, [action, cloneName, cloneVmUuid, cloneRepository, jobName]);
 
   useEffect(() => {
     if (!opened) return;
@@ -287,7 +298,7 @@ export function JobLifecycleAction({
   }
 
   async function apply() {
-    if (!review || !requestKey || applyBusy || attempted) return;
+    if (!review || !requestKey || applyBusy || attempted || !canExecute) return;
     setApplyBusy(true);
     setAttempted(true);
     setError("");
@@ -313,12 +324,32 @@ export function JobLifecycleAction({
             : "Lifecycle outcome unknown. Check application status before sending another request.",
         );
       }
-      if (!isOperationRecord(result)) {
+      const outcomeStates: Record<string, string> = {
+        completed: "Completed",
+        applied: "Applied",
+        unknown: "Unknown",
+        dispatching: "Dispatching",
+        prepared: "Prepared",
+        failed: "Failed",
+      };
+      const normalized = isOperationRecord(result)
+        ? result
+        : outcomeStates[result.readiness]
+          ? {
+              id:
+                result.intentId ||
+                result.retirementRecord?.operationId ||
+                requestKey,
+              state: outcomeStates[result.readiness],
+              parameters: { message: result.summary },
+            }
+          : null;
+      if (!normalized) {
         throw new Error(
-          "Lifecycle apply response is incomplete. Check application status before sending another request.",
+          "Lifecycle response is incomplete. Check the receipt with this request key before another request.",
         );
       }
-      setOperation(result);
+      setOperation(normalized);
       setStep("result");
       if (
         result.state === "Applied" ||
@@ -328,6 +359,11 @@ export function JobLifecycleAction({
         await onApplied?.();
       }
     } catch (cause) {
+      setOperation({
+        id: requestKey,
+        state: "Unknown",
+        parameters: { message: "Reconcile this request before another apply." },
+      });
       setStep("result");
       setError(
         cause instanceof Error
@@ -340,11 +376,15 @@ export function JobLifecycleAction({
   }
 
   async function checkStatus() {
-    if (!operation?.id || statusBusy) return;
+    if (!requestKey || statusBusy) return;
     setStatusBusy(true);
     setError("");
     try {
-      const response = await apiFetch(`/api/operations/${operation.id}`);
+      const statusPath =
+        action === "clone" || action === "remove"
+          ? `/api/jobs/lifecycle/${copy.route}/status/${requestKey}`
+          : `/api/jobs/lifecycle/status/${requestKey}`;
+      const response = await apiFetch(statusPath);
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(
@@ -377,6 +417,17 @@ export function JobLifecycleAction({
 
   function open() {
     setOpened(true);
+    if (
+      attempted &&
+      requestKey &&
+      (!operation?.state ||
+        ["Unknown", "Dispatching", "Prepared", "Accepted", "Running"].includes(
+          operation.state,
+        ))
+    ) {
+      setStep("result");
+      return;
+    }
     setError("");
     setReview(null);
     setOperation(null);
@@ -445,6 +496,32 @@ export function JobLifecycleAction({
                   }}
                 />
               </label>
+              <label className="auth-field">
+                <span>Target VM instance UUID</span>
+                <input
+                  name="newVmUuid"
+                  value={cloneVmUuid}
+                  placeholder="Select a different VM from VMware inventory"
+                  onChange={(event) => {
+                    setCloneVmUuid(event.target.value);
+                    setReview(null);
+                    setError("");
+                  }}
+                />
+              </label>
+              <label className="auth-field">
+                <span>New repository ID</span>
+                <input
+                  name="repositoryId"
+                  value={cloneRepository}
+                  placeholder="repo-LAB (job name: VMware-LAB)"
+                  onChange={(event) => {
+                    setCloneRepository(event.target.value);
+                    setReview(null);
+                    setError("");
+                  }}
+                />
+              </label>
               <p className="panel-footnote">
                 The clone stays disabled by default. Identity, VM assignment,
                 repository changes, and secret copying remain backend-owned and
@@ -498,15 +575,12 @@ export function JobLifecycleAction({
                           : "Not available"}
                       </span>
                     </p>
-                    <p>
-                      <strong>Proof revision</strong>
-                      <span>{review.proofRevision}</span>
-                    </p>
-                    <p>
-                      <strong>Review digest</strong>
-                      <span className="mono">{review.reviewDigest}</span>
-                    </p>
                   </div>
+                  <details className="lifecycle-detail">
+                    <summary>Review reference</summary>
+                    <p>Revision: {review.proofRevision}</p>
+                    <p className="mono">{review.reviewDigest}</p>
+                  </details>
                   <p>{review.summary}</p>
 
                   {review.blockers.length > 0 && (

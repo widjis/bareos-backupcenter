@@ -1,5 +1,7 @@
 # Lifecycle Batch 5 Acceptance Review
 
+Later coordinator checkpoint: see LIFECYCLE-LOCAL-ACCEPTANCE.md. The findings below are retained interim review evidence; several local receipt/dependency/read-back issues were subsequently corrected and tested. Complete native coverage and production acceptance remain open.
+
 Status: **interim targeted review of the new execution candidates**
 
 I kept this pass narrow: `integration/apply_job_lifecycle.py`, `backend/lifecycle_target.py`, `backend/lifecycle_manager.py`, their worker/persistence call sites, and existing lifecycle proof tests. I waited once for `.local/lifecycle-batch5/backend-result.json` with a bounded 20-second sleep; it still did not exist, so this is not a final peer-complete acceptance.

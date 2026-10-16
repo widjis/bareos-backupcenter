@@ -1,6 +1,7 @@
 """Root-owned lifecycle candidate helper with fail-closed dependency loading."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib
 import json
@@ -14,6 +15,7 @@ from uuid import UUID
 ROOT = Path("/var/lib/bareos-lifecycle-applications")
 LOCK = Path("/var/lib/bareos/vm-chain-retention.lock")
 UNRESOLVED_RECEIPT_STATES = {"Dispatching", "Unknown"}
+CONTRACT_VERSION = "lifecycle-native-b6"
 
 
 def _sha(value) -> str:
@@ -48,10 +50,82 @@ def _load_policy_module():
     raise RuntimeError("Lifecycle helper dependency unavailable: apply_backup_policy.") from last_exc
 
 
+def _load_resource_module():
+    targets = ["integration.lifecycle_resource_executor"]
+    if __package__ in (None, ""):
+        targets.append("lifecycle_resource_executor")
+    last_exc = None
+    for name in targets:
+        try:
+            return importlib.import_module(name)
+        except ModuleNotFoundError as exc:
+            last_exc = exc
+            expected = {name, name.split(".")[-1], "integration"}
+            if exc.name not in expected:
+                raise RuntimeError(f"Lifecycle helper dependency unavailable: {exc.name}.") from exc
+    raise RuntimeError("Lifecycle helper dependency unavailable: lifecycle_resource_executor.") from last_exc
+
+
 def transport_ready():
     policy = _load_policy_module()
+    resource = _load_resource_module()
     _load_lock_module()
-    return {"helperPath": str(Path(__file__).resolve()), "policyHelperPath": str(Path(policy.__file__).resolve())}
+    return {
+        "helperPath": str(Path(__file__).resolve()),
+        "policyHelperPath": str(Path(policy.__file__).resolve()),
+        "resourceExecutorPath": str(Path(resource.__file__).resolve()),
+    }
+
+
+def _safe_path_ready(path: Path, *, allow_missing: bool = False):
+    if path.is_symlink():
+        return False
+    if allow_missing and not path.exists():
+        return True
+    try:
+        state = path.stat()
+    except FileNotFoundError:
+        return False
+    return state.st_uid == 0 and not (state.st_mode & 0o022)
+
+
+def capabilities():
+    ready = transport_ready()
+    resource = _load_resource_module()
+    value = resource.describe_capabilities()
+    lock_ready = False
+    try:
+        with _lock():
+            lock_ready = True
+    except Exception:
+        lock_ready = False
+    secure_paths_ready = all(
+        (
+            _safe_path_ready(Path(ready["helperPath"])),
+            _safe_path_ready(Path(ready["policyHelperPath"])),
+            _safe_path_ready(ROOT, allow_missing=True),
+            _safe_path_ready(LOCK.parent),
+        )
+    )
+    value.update(
+        {
+            "contractVersion": CONTRACT_VERSION,
+            "helperHash": _sha_bytes(Path(__file__).read_bytes()),
+            "policyHelperHash": _sha_bytes(Path(ready["policyHelperPath"]).read_bytes()),
+            "helperPath": ready["helperPath"],
+            "policyHelperPath": ready["policyHelperPath"],
+            "resourceExecutorPath": ready["resourceExecutorPath"],
+            "transportReady": True,
+            "locksReady": bool(value.get("locksReady")) and lock_ready,
+            "securePathsReady": bool(value.get("securePathsReady")) and secure_paths_ready,
+            "prerequisitesComplete": bool(value.get("prerequisitesComplete")) and lock_ready and secure_paths_ready,
+        }
+    )
+    return value
+
+
+def _sha_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def _read_text(path: Path) -> str | None:
@@ -107,6 +181,14 @@ def _job_map(policy):
     return {path.stem: path.read_text() for path in sorted(job_dir.glob("*.conf"))}
 
 
+def _after_job_runtime_state_dir() -> Path:
+    return Path(os.environ.get("BACKUPCENTER_AFTER_JOB_STATE", "/var/lib/bareos-after-job-runtime"))
+
+
+def _runtime_lock_path(job_name: str) -> Path:
+    return _after_job_runtime_state_dir() / "locks" / f"{job_name}.target.lock"
+
+
 def _target_block_present(text: str, target: str) -> bool:
     return f"# BackupCenter dependency trigger begin: {target}" in text and f"# BackupCenter dependency trigger end: {target}" in text
 
@@ -125,7 +207,8 @@ def _lifecycle_state(policy, job_name: str):
     schedule_text = _read_text(schedule_path if schedule_name == schedule_path.stem else policy.BASE / "schedule" / f"{schedule_name}.conf") or ""
     definition = policy.policy_marker(job_text)
     _require(definition is not None, "Managed lifecycle marker is missing from the job configuration.")
-    jobs = {name: text for name, text in _job_map(policy).items() if name in policy.NAMES}
+    all_jobs = _job_map(policy)
+    jobs = {name: text for name, text in all_jobs.items() if name in policy.NAMES}
     enabled_ok = False
     enabled_error = "Managed lifecycle state is inconsistent."
     try:
@@ -156,11 +239,12 @@ def _lifecycle_state(policy, job_name: str):
         "definition": definition,
         "lifecycle_state": "disabled" if disabled_ok and not enabled_ok else "enabled",
         "jobs": jobs,
+        "all_jobs": all_jobs,
     }
 
 
 def _resource_rows(policy, state, proof_revision: int):
-    job_refs = list(_job_map(policy).values())
+    job_refs = list(state["all_jobs"].values())
     job_name = _job_name(state["vm"])
     fileset = _resource_key(state["job_text"], "FileSet")
     pool = _resource_key(state["job_text"], "Pool")
@@ -215,6 +299,19 @@ def _dependency_rows(policy, state, proof_revision: int):
     return rows
 
 
+def _unmanaged_coverage_rows(state, proof_revision: int):
+    target = _job_name(state["vm"])
+    rows = []
+    for name, text in state["all_jobs"].items():
+        if name in state["jobs"]:
+            continue
+        if target in text and ("Run Before Job" in text or "Run After Job" in text or f"dependency trigger begin: {target}" in text):
+            rows.append({"kind": "coverage", "summary": f"Unmanaged job definition {name} references {target}; inbound runtime coverage is not yet authoritative.", "proof_revision": proof_revision})
+    if re.search(r"^\s*JobDefs\s*=\s*(\S+)", state["job_text"], re.M):
+        rows.append({"kind": "coverage", "summary": f"{target} inherits JobDefs and runtime include coverage is not yet authoritative.", "proof_revision": proof_revision})
+    return rows
+
+
 def _list_active_catalog_operations(job_name: str):
     policy = _load_policy_module()
     try:
@@ -226,18 +323,25 @@ def _list_active_catalog_operations(job_name: str):
 
 def _scan_receipts(job_name: str, *, exclude_request_id: str | None = None):
     rows = []
-    if not ROOT.exists():
-        return rows
-    for path in sorted(ROOT.glob("*.json")):
-        if path.name.endswith(".before.json"):
-            continue
-        payload = json.loads(path.read_text())
-        if payload.get("jobName") != job_name:
-            continue
-        if exclude_request_id and payload.get("id") == exclude_request_id:
-            continue
-        if payload.get("state") in UNRESOLVED_RECEIPT_STATES:
-            rows.append({"kind": "maintenance", "summary": f"Lifecycle receipt {payload['id']} is still {payload['state']}.", "proof_revision": payload.get("proofRevision")})
+    if ROOT.exists():
+        for path in sorted(ROOT.glob("*.json")):
+            if path.name.endswith(".before.json"):
+                continue
+            payload = json.loads(path.read_text())
+            if payload.get("jobName") != job_name:
+                continue
+            if exclude_request_id and payload.get("id") == exclude_request_id:
+                continue
+            if payload.get("state") in UNRESOLVED_RECEIPT_STATES:
+                rows.append({"kind": "maintenance", "summary": f"Lifecycle receipt {payload['id']} is still {payload['state']}.", "proof_revision": payload.get("proofRevision")})
+    runtime_root = _after_job_runtime_state_dir() / "receipts"
+    if runtime_root.exists():
+        for path in sorted(runtime_root.glob("*.json")):
+            payload = json.loads(path.read_text())
+            if payload.get("target") != job_name and payload.get("source") != job_name:
+                continue
+            if payload.get("state") in {"Prepared", "Deferred", "Dispatching", "Queued", "Unknown"}:
+                rows.append({"kind": "runtime", "summary": f"After-job runtime receipt for {job_name} is still {payload['state']}.", "proof_revision": payload.get("proofRevision")})
     return rows
 
 
@@ -261,6 +365,7 @@ def _proof_payload(policy, state):
     revision = int(_sha(proof)[:12], 16) % 1_000_000_000 or 1
     proof["resources"] = _resource_rows(policy, state, revision)
     proof["dependencies"] = _dependency_rows(policy, state, revision)
+    proof["coverageGaps"] = _unmanaged_coverage_rows(state, revision)
     for row in proof["activeOperations"]:
         row["proof_revision"] = revision
     for row in proof["unresolvedIntents"]:
@@ -277,8 +382,14 @@ def current(job_name: str):
     state = _lifecycle_state(policy, job_name)
     proof = _proof_payload(policy, state)
     blockers = []
+    for row in proof["activeOperations"]:
+        blockers.append({"code": "active_operation", "summary": row["summary"]})
+    for row in proof["unresolvedIntents"]:
+        blockers.append({"code": "runtime_pending", "summary": row["summary"]})
     if "operations" not in proof["proofCoverage"]:
         blockers.append({"code": "missing_operation_proof", "summary": "Active Catalog operation proof is unavailable."})
+    for row in proof.get("coverageGaps", []):
+        blockers.append({"code": "unmanaged_runtime_coverage_unproven", "summary": row["summary"]})
     return {
         "jobName": job_name,
         "definition": state["definition"],
@@ -367,6 +478,15 @@ def _lock():
     return stream
 
 
+def _runtime_lock(job_name: str):
+    mod = _load_lock_module()
+    path = _runtime_lock_path(job_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stream = open(path, "a+", encoding="utf-8")
+    mod.flock(stream.fileno(), mod.LOCK_EX | mod.LOCK_NB)
+    return stream
+
+
 def _receipt_paths(request_id: str):
     return ROOT / f"{request_id}.json", ROOT / f"{request_id}.before.json"
 
@@ -376,7 +496,12 @@ def _update_receipt(path: Path, payload: dict):
     path.chmod(0o600)
 
 
+def _require_root():
+    _require(hasattr(os, "geteuid") and os.geteuid() == 0, "Root-owned native lifecycle execution is required.")
+
+
 def apply(body: dict):
+    _require_root()
     transport_ready()
     request_id = str(UUID(body["request_id"]))
     actor = body["actor"]
@@ -385,7 +510,9 @@ def apply(body: dict):
     definition = body.get("definition")
     ROOT.mkdir(mode=0o700, exist_ok=True)
     receipt_path, before_path = _receipt_paths(request_id)
-    with _lock():
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(_lock())
+        stack.enter_context(_runtime_lock(job_name))
         if receipt_path.exists():
             saved = json.loads(receipt_path.read_text())
             _require(
@@ -405,6 +532,9 @@ def apply(body: dict):
         _require(not reviewed["current"]["unresolvedIntents"], reviewed["current"]["unresolvedIntents"][0]["summary"] if reviewed["current"]["unresolvedIntents"] else "")
         policy = _load_policy_module()
         state = _lifecycle_state(policy, job_name)
+        source = (state["definition"].get("after_job") or {}).get("source_job")
+        if source and source.startswith("VMware-"):
+            stack.enter_context(_runtime_lock(source))
         writes = _disable_writes(policy, state) if action == "disable" else _enable_writes(policy, state, reviewed["definition"])
         before = {
             "id": request_id,
@@ -519,7 +649,9 @@ if __name__ == "__main__":
     try:
         body = json.load(sys.stdin)
         action = body["action"]
-        if action == "current":
+        if action == "capabilities":
+            result = capabilities()
+        elif action == "current":
             result = current(body["job_name"])
         elif action == "review":
             result = review(body["lifecycle_action"], body["job_name"], body.get("definition"))
@@ -531,5 +663,5 @@ if __name__ == "__main__":
             raise ValueError("Unsupported lifecycle action.")
         print(json.dumps(result))
     except Exception as exc:
-        print(json.dumps({"error": str(exc)[:200]}))
+        print(json.dumps({"error": "Lifecycle helper request failed."}))
         sys.exit(1)
