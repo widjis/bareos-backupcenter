@@ -1,0 +1,19 @@
+[Unit]
+Description=Drain reviewed Backup Center after-job receipts
+After=bareos-dir.service postgresql.service
+ConditionPathExists=/opt/bareos/25.1.1/lib/bareos/scripts/backupcenter-after-job.py
+
+[Service]
+Type=oneshot
+User=bareos
+Group=bareos
+StateDirectory=bareos-after-job-runtime
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/opt/bareos-api-venv/bin/python /opt/bareos/25.1.1/lib/bareos/scripts/backupcenter-after-job.py --drain
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/bareos-after-job-runtime
+TimeoutStartSec=120

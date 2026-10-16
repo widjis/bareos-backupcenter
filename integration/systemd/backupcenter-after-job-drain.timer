@@ -1,0 +1,11 @@
+[Unit]
+Description=Check pending Backup Center after-job receipts each minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+AccuracySec=1s
+Unit=backupcenter-after-job-drain.service
+
+[Install]
+WantedBy=timers.target

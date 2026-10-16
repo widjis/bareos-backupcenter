@@ -120,6 +120,7 @@ small {
   position: sticky;
   top: 0;
   height: 100vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   padding: 25px 14px;
@@ -177,6 +178,7 @@ small {
   margin-bottom: 10px;
 }
 .sidebar nav {
+  flex-shrink: 0;
   display: grid;
   gap: 5px;
 }
@@ -226,6 +228,7 @@ small {
   outline-color: #a3c1ff;
 }
 .sidebar-bottom {
+  flex-shrink: 0;
   margin-top: auto;
   border-top: 1px solid #39506e;
   padding: 20px 10px 2px;
@@ -1757,13 +1760,143 @@ pre {
   min-width: 180px;
 }
 
-.restore-progress { margin-block: 16px; padding: 20px; }
-.restore-progress summary { cursor: pointer; margin-top: 12px; }
-.restore-progress .log-view { max-height: 240px; overflow: auto; }
+.restore-progress {
+  margin-block: 16px;
+  padding: 20px;
+}
+.restore-progress summary {
+  cursor: pointer;
+  margin-top: 12px;
+}
+.restore-progress .log-view {
+  max-height: 240px;
+  overflow: auto;
+}
 
-.restore-warning-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.restore-warning-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
 
-.policy-job-choice { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.policy-job-choice {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
 
-.active-policy-settings { padding: 20px; }
-.active-policy-settings fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 12px 0; }
+.active-policy-settings {
+  padding: 20px;
+}
+.active-policy-settings fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+/* Settings uses the existing navigation tokens and native link semantics. */
+.sidebar nav.settings-subnav {
+  margin: 4px 0 12px 22px;
+  border-left: 1px solid var(--nav-muted, #a5b7cd);
+  padding-left: 8px;
+}
+.sidebar nav.settings-subnav a {
+  padding: 8px 12px;
+}
+@media (max-width: 640px) {
+  .sidebar nav.settings-subnav {
+    margin: 4px 0 0;
+    padding: 4px 0;
+    border-left: 0;
+  }
+}
+
+/* Read-only job review can originate inside a nowrap table cell. */
+.disable-review {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.lifecycle-dialog {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.lifecycle-form .auth-field {
+  margin: 12px 0 0;
+}
+
+.lifecycle-alert {
+  margin-top: 16px;
+}
+
+.lifecycle-review {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.lifecycle-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fafbfd;
+}
+
+.lifecycle-summary-grid p {
+  margin: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.lifecycle-summary-grid strong {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.lifecycle-summary-grid span {
+  font-size: 11px;
+}
+
+.lifecycle-list {
+  padding-left: 18px;
+}
+
+.lifecycle-details {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--background);
+}
+
+.lifecycle-details summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.lifecycle-details pre {
+  overflow: auto;
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.lifecycle-dialog-danger .account-confirm h2 {
+  color: var(--danger);
+}
+
+@media (max-width: 650px) {
+  .lifecycle-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

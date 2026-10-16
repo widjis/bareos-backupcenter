@@ -50,7 +50,7 @@ test("active policy is reviewed and unknown delivery is reconciled without resen
     applied = true;
     return route.fulfill({ json: { state: "Applied" } });
   });
-  await page.goto("/?view=settings");
+  await page.goto("/?view=settings&section=policies");
   const panel = page.getByRole("region", {
     name: "Active backup schedule and retention",
   });
@@ -102,7 +102,7 @@ test("active policy form loads current settings and resets back to them", async 
       },
     }),
   );
-  await page.goto("/?view=settings");
+  await page.goto("/?view=settings&section=policies");
   const panel = page.getByRole("region", {
     name: "Active backup schedule and retention",
   });

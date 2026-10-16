@@ -95,7 +95,7 @@ test("account drafts survive canceled navigation and account creation is confirm
       json: { users: [{ username: "admin", role: "Admin", enabled: true }] },
     });
   });
-  await page.goto("/?view=settings");
+  await page.goto("/?view=settings&section=users");
   const area = page.locator(".identity-settings");
   await area.getByRole("button", { name: "Review account" }).click();
   await expect(area.getByLabel("New username")).toHaveAttribute(

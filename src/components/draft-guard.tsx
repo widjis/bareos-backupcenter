@@ -1,6 +1,11 @@
 "use client";
 import { useEffect, useRef } from "react";
-export type NavigationDraft = { view: string; query: string; page: number };
+export type NavigationDraft = {
+  view: string;
+  query: string;
+  page: number;
+  section?: string;
+};
 const draftOwners = new Map<symbol, boolean>();
 export function useUnsavedDraft(dirty: boolean) {
   const owner = useRef(Symbol("form-draft"));
@@ -29,7 +34,7 @@ export function DiscardDraftDialog({
   pending,
   onBack,
   onDiscard,
-  description = "Your unsaved account, policy or password entries will be cleared when you leave Settings.",
+  description = "Your unsaved account, policy or password entries will be cleared when you leave this settings page.",
 }: {
   description?: string;
   pending: NavigationDraft | null;
@@ -61,9 +66,7 @@ export function DiscardDraftDialog({
     >
       <div className="account-confirm">
         <h2 id="discard-title">Discard unsaved changes?</h2>
-        <p>
-          {description}
-        </p>
+        <p>{description}</p>
         <div className="dialog-actions">
           <button className="button" ref={back} onClick={onBack}>
             Go back

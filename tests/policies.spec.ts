@@ -36,7 +36,7 @@ test("draft policy validates, saves synthetically, and preserves edits on revisi
       json: { policies: policy ? [policy] : [], limit: 100 },
     });
   });
-  await page.goto("/?view=settings");
+  await page.goto("/?view=settings&section=policies");
   const area = page.locator(".policy-settings");
   await area.getByRole("button", { name: "Save draft policy" }).click();
   await expect(area.getByLabel("Policy name")).toBeFocused();

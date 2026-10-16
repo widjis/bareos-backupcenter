@@ -95,3 +95,15 @@ Direct VMware restore destination review extends the existing recovery dialog wi
 The direct VMware review variant now has native live destination selectors, a nested confirmation and a per-recovery-point restore-test evidence section. Runtime colors/layout remain unchanged. Execution warnings, isolation proof and OS-boot proof are shown separately; source scope is visible.
 
 Active existing-job policy uses the existing panel, policy-fields grid, auth-field inputs, native selectors/time input and confirmation styling. It appears separately from draft policy metadata. Manual Run level uses the same select owner; no new visual tokens are introduced.
+
+## Settings subpages — 2026-10-16
+
+Settings retains the navy navigation rail and shared tokens. A subordinate navigation list exposes one settings page at a time, horizontally scrollable on narrow screens.
+
+## Per-job scheduling variant
+
+Extend the existing policy form rather than create a parallel editor. The Jobs row exposes Edit schedule, opening an exact-job page with Back to Jobs, established panel typography, native inputs and the canonical review/confirmation feedback. Calendar choices and Full cadence are separate controls. Maintain single-column flow on mobile, explicit WITA time, visible validation and keyboard access. Runtime colors/spacing remain owned by globals.css.
+
+## Disable schedule review variant
+
+Jobs uses the existing compact row action and native restore-confirm/account-confirm modal presentation. Reuse established tokens and keyboard/focus behavior. The read-only variant wraps text normally even inside nowrap table cells and scrolls within the visual viewport; it offers Close/Refresh review without an execution action.

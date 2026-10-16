@@ -290,7 +290,7 @@ def gateway():
 async def operational_boundary(request, call_next):
     from fastapi.responses import JSONResponse
     from backend import auth
-    allowed_posts={"/api/operations","/api/auth/login","/api/auth/logout","/api/auth/password","/api/users","/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies/active/preview","/api/policies/active/apply","/api/policies"}
+    allowed_posts={"/api/jobs/disable/preview","/api/jobs/lifecycle/disable/review","/api/jobs/lifecycle/disable","/api/jobs/lifecycle/enable/review","/api/jobs/lifecycle/enable","/api/operations","/api/auth/login","/api/auth/logout","/api/auth/password","/api/users","/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies/active/preview","/api/policies/active/apply","/api/policies"}
     mutation=request.method=="POST" and (request.url.path in allowed_posts or request.url.path.startswith("/api/users/") or (request.url.path.startswith("/api/alerts/") and request.url.path.endswith("/ack")))
     if request.method not in ("GET", "HEAD") and not mutation:
         return JSONResponse({"detail": "This operation is not enabled."}, status_code=405)
@@ -303,7 +303,7 @@ async def operational_boundary(request, call_next):
         request.state.user=user
         if (request.url.path=="/api/users" or request.url.path.startswith("/api/users/")) and user["role"]!="Admin":
             return JSONResponse({"detail":"Administrator permission required."},status_code=403)
-        if (request.url.path in ("/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies/active/preview","/api/policies/active/apply","/api/policies") or request.url.path.startswith("/api/alerts/")) and mutation and user["role"]!="Admin":
+        if (request.url.path in ("/api/provisioning/preview","/api/provisioning/apply","/api/recovery/vmware/plan","/api/recovery/vmware/restore","/api/policies/active/preview","/api/policies/active/apply","/api/policies","/api/jobs/lifecycle/disable/review","/api/jobs/lifecycle/disable","/api/jobs/lifecycle/enable/review","/api/jobs/lifecycle/enable") or request.url.path.startswith("/api/alerts/")) and mutation and user["role"]!="Admin":
             return JSONResponse({"detail":"Administrator permission required."},status_code=403)
         if request.url.path=="/api/operations" and mutation and user["role"] not in ("Admin","Backup Operator"):
             return JSONResponse({"detail":"Backup operation permission required."},status_code=403)
@@ -781,6 +781,7 @@ async def session_progress(job_id:int):
 
 
 from backend.active_policy import ActivePolicy, current_jobs as active_policy_current_jobs, preview_payload as active_policy_preview_payload
+from backend.policy_compatibility import current_capabilities, helper_compatible, local_preview, BLOCKER as POLICY_HELPER_BLOCKER
 class ActivePolicyPreview(BaseModel):
     model_config=ConfigDict(extra="forbid")
     definition:ActivePolicy
@@ -788,6 +789,9 @@ class ActivePolicyApply(ActivePolicyPreview):
     request_id:UUID
     review_digest:str=Field(pattern=r"^[0-9a-f]{64}$")
     confirmed:Literal[True]
+
+def helper_schema_mismatch(message):
+    return 'Extra inputs are not permitted' in message and any(field in message for field in ('trigger_mode','after_job','window_end_wita','retry_count','retry_interval_minutes'))
 
 @app.get("/api/policies/active")
 async def active_policy_current(request:Request):
@@ -797,14 +801,14 @@ async def active_policy_current(request:Request):
         _debug_active_policy("A","backend/app.py:active_policy_current","[DEBUG] Enter active policy current route",{"role":request.state.user["role"],"platform":__import__("os").name})
         # #endregion
         from backend.policy_target import invoke
-        r=await asyncio.to_thread(invoke,{"action":"current"});r["applyEnabled"]=gateway().values.get("BACKUPCENTER_POLICY_APPLY_ENABLED")=="1";return r
+        r=await asyncio.to_thread(invoke,{"action":"current"});return current_capabilities(r,gateway().values.get("BACKUPCENTER_POLICY_APPLY_ENABLED")=="1")
     except Exception as exc:
         # #region debug-point C:active-policy-current-error
         _debug_active_policy("C","backend/app.py:active_policy_current","[DEBUG] Active policy current route failed",{"errorType":type(exc).__name__,"error":str(exc)[:250]})
         # #endregion
         if str(exc)=="Managed policy transport is configured for this Windows environment.":
             snapshot=await gateway().snapshot()
-            return {"jobs":active_policy_current_jobs(snapshot,getattr(gateway(),"operation_jobs",set())),"applyEnabled":gateway().values.get("BACKUPCENTER_POLICY_APPLY_ENABLED")=="1"}
+            return {"jobs":active_policy_current_jobs(snapshot,getattr(gateway(),"operation_jobs",set())),"applyEnabled":False,"helperCompatible":False,"liveApplyBlocker":"Live policy transport is unavailable on this platform."}
         raise HTTPException(502,"Active policy unavailable. No settings changed.")
 
 @app.post("/api/policies/active/preview")
@@ -812,11 +816,17 @@ async def active_policy_preview(body:ActivePolicyPreview,request:Request):
     if request.state.user["role"]!="Admin":raise HTTPException(403,"Administrator permission required.")
     try:
         from backend.policy_target import invoke
-        return await asyncio.to_thread(invoke,{"action":"preview","definition":body.definition.model_dump()})
+        review=await asyncio.to_thread(invoke,{"action":"preview","definition":body.definition.model_dump()})
+        capabilities=await asyncio.to_thread(invoke,{"action":"current"})
+        readiness=current_capabilities(capabilities,gateway().values.get("BACKUPCENTER_POLICY_APPLY_ENABLED")=="1")
+        return {**review,"applyEnabled":readiness["applyEnabled"],"liveApplyBlocker":readiness["liveApplyBlocker"]}
     except ValueError as exc:
-        if str(exc)=="Managed policy transport is configured for this Windows environment.":
-            return active_policy_preview_payload(body.definition)
-        raise HTTPException(409,str(exc))
+        message=str(exc)
+        if message=="Managed policy transport is configured for this Windows environment.":
+            return local_preview(active_policy_preview_payload(body.definition),"Live policy transport is unavailable on this platform.")
+        if helper_schema_mismatch(message):
+            return local_preview(active_policy_preview_payload(body.definition))
+        raise HTTPException(409,message)
     except Exception:raise HTTPException(502,"Policy review unavailable. No settings changed.")
 
 @app.post("/api/policies/active/apply")
@@ -829,6 +839,9 @@ async def active_policy_apply(body:ActivePolicyApply,request:Request):
         from backend.policy_target import invoke
         async with g.lock:
             if not await asyncio.to_thread(g.store.actor_allowed,request.state.user["username"],"provision"):raise HTTPException(403,"Administrator permission was revoked.")
+            capabilities=await asyncio.to_thread(invoke,{"action":"current"})
+            readiness=current_capabilities(capabilities,True)
+            if not readiness['applyEnabled']:raise HTTPException(409,readiness['liveApplyBlocker'])
             return await asyncio.to_thread(invoke,{"action":"apply","definition":body.definition.model_dump(),"request_id":str(body.request_id),"digest":body.review_digest,"actor":request.state.user["username"]})
     except HTTPException:raise
     except ValueError as exc:raise HTTPException(409,str(exc))
@@ -841,3 +854,110 @@ async def active_policy_status(request_id:UUID,request:Request):
         from backend.policy_target import invoke
         return await asyncio.to_thread(invoke,{"action":"status","request_id":str(request_id)})
     except Exception:raise HTTPException(502,"Policy receipt unavailable. Reconcile server status before a new request.")
+
+
+class DisablePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    job_name: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
+
+
+class LifecycleReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    job_name: str = Field(alias="jobName", pattern=r"^[A-Za-z0-9_.-]{1,128}$")
+
+
+class LifecycleApplyRequest(LifecycleReviewRequest):
+    idempotency_key: UUID = Field(alias="idempotencyKey")
+    review_digest: str = Field(alias="reviewDigest", pattern=r"^[0-9a-f]{64}$")
+    proof_revision: int = Field(alias="proofRevision", ge=1, le=1_000_000_000)
+    confirmed: Literal[True]
+
+
+def _lifecycle_scope(g, job_name):
+    if job_name not in getattr(g, "operation_jobs", set()):
+        raise HTTPException(409, "Job is outside the managed scope.")
+
+
+async def _disable_review(job_name: str, request: Request):
+    from backend.lifecycle_manager import review_disable
+    g = gateway()
+    _lifecycle_scope(g, job_name)
+    return await asyncio.to_thread(review_disable, g.store, g.values, job_name, request.state.user["role"])
+
+
+async def _enable_review(job_name: str, request: Request):
+    from backend.lifecycle_manager import review_enable
+    g = gateway()
+    _lifecycle_scope(g, job_name)
+    return await asyncio.to_thread(review_enable, g.store, g.values, job_name, request.state.user["role"])
+
+
+@app.post("/api/jobs/disable/preview")
+async def disable_job_preview(body: DisablePreviewRequest, request: Request):
+    if request.state.user["role"] != "Admin":
+        raise HTTPException(403, "Administrator permission required.")
+    return await _disable_review(body.job_name, request)
+
+
+@app.post("/api/jobs/lifecycle/disable/review")
+async def lifecycle_disable_review(body: LifecycleReviewRequest, request: Request):
+    return await _disable_review(body.job_name, request)
+
+
+@app.post("/api/jobs/lifecycle/enable/review")
+async def lifecycle_enable_review(body: LifecycleReviewRequest, request: Request):
+    return await _enable_review(body.job_name, request)
+
+
+@app.post("/api/jobs/lifecycle/disable", status_code=202)
+async def lifecycle_disable_apply(body: LifecycleApplyRequest, request: Request):
+    if request.state.user["role"] != "Admin":
+        raise HTTPException(403, "Administrator permission required.")
+    g = gateway()
+    _lifecycle_scope(g, body.job_name)
+    from backend.lifecycle_manager import prepare_apply
+    review = await _disable_review(body.job_name, request)
+    if review["reviewDigest"] != body.review_digest or review["proofRevision"] != body.proof_revision:
+        raise HTTPException(409, "Lifecycle review changed. Review again before apply.")
+    if not review["executionSupported"]:
+        raise HTTPException(409, review.get("liveApplyBlocker") or "Lifecycle apply is not enabled.")
+    if not await asyncio.to_thread(g.store.actor_allowed, request.state.user["username"], "provision"):
+        raise HTTPException(403, "Administrator permission was revoked.")
+    try:
+        return await asyncio.to_thread(prepare_apply, g.store, request.state.user["username"], review, "disable", body.idempotency_key)
+    except PermissionError:
+        raise HTTPException(403, "Administrator permission was revoked.")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/jobs/lifecycle/enable", status_code=202)
+async def lifecycle_enable_apply(body: LifecycleApplyRequest, request: Request):
+    if request.state.user["role"] != "Admin":
+        raise HTTPException(403, "Administrator permission required.")
+    g = gateway()
+    _lifecycle_scope(g, body.job_name)
+    from backend.lifecycle_manager import prepare_apply
+    review = await _enable_review(body.job_name, request)
+    if review["reviewDigest"] != body.review_digest or review["proofRevision"] != body.proof_revision:
+        raise HTTPException(409, "Lifecycle review changed. Review again before apply.")
+    if not review["executionSupported"]:
+        raise HTTPException(409, review.get("liveApplyBlocker") or "Lifecycle apply is not enabled.")
+    if not await asyncio.to_thread(g.store.actor_allowed, request.state.user["username"], "provision"):
+        raise HTTPException(403, "Administrator permission was revoked.")
+    try:
+        return await asyncio.to_thread(prepare_apply, g.store, request.state.user["username"], review, "enable", body.idempotency_key)
+    except PermissionError:
+        raise HTTPException(403, "Administrator permission was revoked.")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/jobs/lifecycle/status/{request_id}")
+async def lifecycle_status(request_id: UUID, request: Request):
+    if request.state.user["role"] != "Admin":
+        raise HTTPException(403, "Administrator permission required.")
+    row = await asyncio.to_thread(gateway().store.operation_key, request_id)
+    if not row:
+        raise HTTPException(404, "Lifecycle receipt not found.")
+    return row

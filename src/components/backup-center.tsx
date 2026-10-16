@@ -2,6 +2,7 @@
 import { ActivePolicySettings } from "./active-policy";
 import { NativeSelectField } from "./form-controls";
 import { RestoreProgress } from "./restore-progress";
+import { JobLifecycleAction } from "./job-lifecycle";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Play,
@@ -63,6 +64,7 @@ type Job = {
   type: string;
   client: string;
   fileset: string;
+  lifecycleState?: "active" | "disabled" | "retired";
   schedule: string;
   storage: string[];
   pool: string;
@@ -95,7 +97,7 @@ type Operation = {
     summary?: string;
     requestedLevel?: "Full" | "Incremental";
     simulationOnly?: boolean;
-    destination?: {vm_name?:string;host?:string;datastore?:string};
+    destination?: { vm_name?: string; host?: string; datastore?: string };
   };
   created_at: string;
   updated_at: string;
@@ -167,6 +169,7 @@ const views = [
   { id: "infrastructure", name: "Infrastructure", icon: Server },
   { id: "history", name: "History", icon: History },
   { id: "settings", name: "Settings", icon: Settings },
+  { id: "job-schedule", name: "Edit job schedule", icon: Clock3 },
 ];
 const descriptions: Record<string, string> = {
   overview:
@@ -176,6 +179,7 @@ const descriptions: Record<string, string> = {
   infrastructure: "VMware inventory, backup proxies, and repository resources.",
   history: "Backup and restore sessions retrieved from the Catalog.",
   settings: "Local integration status and available capabilities.",
+  "job-schedule": "Review scheduling changes for one managed backup job.",
 };
 const date = (value: string | null) =>
   value
@@ -256,6 +260,19 @@ function ConnectionBanner({
   );
 }
 
+const settingsSections = [
+  { id: "connections", name: "Connections" },
+  { id: "users", name: "Users" },
+  { id: "permissions", name: "Permissions" },
+  { id: "notifications", name: "Notifications" },
+  { id: "audit", name: "Audit" },
+  { id: "policies", name: "Policies" },
+];
+const validSettingsSection = (value: string | null) =>
+  settingsSections.some((section) => section.id === value)
+    ? value!
+    : "connections";
+
 export default function BackupCenter() {
   const [view, setView] = useState("overview"),
     [query, setQuery] = useState(""),
@@ -263,6 +280,7 @@ export default function BackupCenter() {
   const [data, setData] = useState<Snapshot | null>(null),
     [busy, setBusy] = useState(true),
     [error, setError] = useState("");
+  const [settingsSection, setSettingsSection] = useState("connections");
   const identity = useIdentity();
   const dirty = useRef(false);
   const [pendingNavigation, setPendingNavigation] =
@@ -293,9 +311,9 @@ export default function BackupCenter() {
   const [operationPage, setOperationPage] = useState(1);
   const [confirmation, setConfirmation] = useState<ConfirmAction | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [levelLocked,setLevelLocked] = useState(false);
+  const [levelLocked, setLevelLocked] = useState(false);
   const [actionError, setActionError] = useState("");
-  const [trackedRestore,setTrackedRestore] = useState<number|null>(null);
+  const [trackedRestore, setTrackedRestore] = useState<number | null>(null);
   const [lastOperation, setLastOperation] = useState<Operation | null>(null);
   const confirmationDialog = useRef<HTMLDialogElement>(null);
   const confirmationBack = useRef<HTMLButtonElement>(null);
@@ -314,6 +332,7 @@ export default function BackupCenter() {
       setView(
         views.some((v) => v.id === q.get("view")) ? q.get("view")! : "overview",
       );
+      setSettingsSection(validSettingsSection(q.get("section")));
       setQuery(q.get("q") || "");
       setPage(Math.max(1, Number(q.get("page")) || 1));
     };
@@ -321,15 +340,26 @@ export default function BackupCenter() {
     window.addEventListener("popstate", read);
     return () => window.removeEventListener("popstate", read);
   }, []);
-  const navigate = (nextView: string, nextQuery = query, nextPage = 1) => {
-    if (dirty.current && nextView !== view) {
+  const navigate = (
+    nextView: string,
+    nextQuery = query,
+    nextPage = 1,
+    section = settingsSection,
+  ) => {
+    if (
+      dirty.current &&
+      (nextView !== view ||
+        (nextView === "settings" && section !== settingsSection))
+    ) {
       setPendingNavigation({
         view: nextView,
         query: nextQuery,
         page: nextPage,
+        section,
       });
       return;
     }
+    setSettingsSection(validSettingsSection(section));
     setView(nextView);
     setQuery(nextQuery);
     setPage(nextPage);
@@ -342,6 +372,8 @@ export default function BackupCenter() {
         if (value) q.set(key, value);
       }
     }
+    if (nextView === "settings")
+      q.set("section", validSettingsSection(section));
     if (nextQuery) q.set("q", nextQuery);
     if (nextPage > 1) q.set("page", String(nextPage));
     history.replaceState(null, "", `?${q}`);
@@ -411,7 +443,7 @@ export default function BackupCenter() {
     return () => c.abort();
   }, [selected]);
   useEffect(() => {
-    if (view !== "settings") return;
+    if (view !== "settings" || settingsSection !== "audit") return;
     const controller = new AbortController();
     setAuditBusy(true);
     setAuditPage(1);
@@ -437,7 +469,7 @@ export default function BackupCenter() {
         if (!controller.signal.aborted) setAuditBusy(false);
       });
     return () => controller.abort();
-  }, [view, data?.syncedAt]);
+  }, [view, settingsSection, data?.syncedAt]);
   useEffect(() => {
     if (!confirmation) return;
     confirmationDialog.current?.showModal();
@@ -483,11 +515,26 @@ export default function BackupCenter() {
       clearInterval(interval);
     };
   }, [loadOperations]);
-  useEffect(()=>{
-    if(lastOperation?.kind==="restore"&&!lastOperation.job_id&&["Prepared","Dispatching"].includes(lastOperation.state)){setTrackedRestore(null);return;}
-    const id=lastOperation?.kind==="restore"?lastOperation.job_id:operations.find(o=>o.kind==="restore"&&o.job_id&&["Accepted","Running"].includes(o.state))?.job_id;
-    if(id)setTrackedRestore(id);
-  },[operations,lastOperation]);
+  useEffect(() => {
+    if (
+      lastOperation?.kind === "restore" &&
+      !lastOperation.job_id &&
+      ["Prepared", "Dispatching"].includes(lastOperation.state)
+    ) {
+      setTrackedRestore(null);
+      return;
+    }
+    const id =
+      lastOperation?.kind === "restore"
+        ? lastOperation.job_id
+        : operations.find(
+            (o) =>
+              o.kind === "restore" &&
+              o.job_id &&
+              ["Accepted", "Running"].includes(o.state),
+          )?.job_id;
+    if (id) setTrackedRestore(id);
+  }, [operations, lastOperation]);
   const activeOperation = (kind: string, target: string) =>
     operations.some(
       (o) =>
@@ -534,7 +581,9 @@ export default function BackupCenter() {
           "X-Backup-Center-Action": "confirmed",
         },
         body: JSON.stringify({
-          ...(confirmation.kind==="run"&&confirmation.requestedLevel?{level:confirmation.requestedLevel}:{}),
+          ...(confirmation.kind === "run" && confirmation.requestedLevel
+            ? { level: confirmation.requestedLevel }
+            : {}),
           kind: confirmation.kind,
           target: confirmation.target,
           idempotency_key: confirmation.key,
@@ -584,7 +633,11 @@ export default function BackupCenter() {
   };
   const matches = (value: unknown) =>
     JSON.stringify(value).toLowerCase().includes(query.toLowerCase());
-  const restoreDestination = (s:Session) => s.type==="Restore" ? operations.find(o=>o.kind==="restore"&&o.job_id===s.id)?.parameters.destination?.vm_name : undefined;
+  const restoreDestination = (s: Session) =>
+    s.type === "Restore"
+      ? operations.find((o) => o.kind === "restore" && o.job_id === s.id)
+          ?.parameters.destination?.vm_name
+      : undefined;
   const sessionLink = (s: Session) => (
     <button className="text-button" onClick={() => open(s)}>
       {restoreDestination(s) || s.name}
@@ -592,7 +645,7 @@ export default function BackupCenter() {
     </button>
   );
   const historyRows = (data?.sessions || [])
-    .filter(s=>matches(s)||matches(restoreDestination(s)||""))
+    .filter((s) => matches(s) || matches(restoreDestination(s) || ""))
     .map((s) => [
       sessionLink(s),
       <span className="mono">#{s.id}</span>,
@@ -639,27 +692,57 @@ export default function BackupCenter() {
         </div>
         <div className="nav-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
-          {views.map((v) => (
-            <a
-              key={v.id}
-              href={`?view=${v.id}`}
-              aria-label={v.name}
-              aria-current={view === v.id ? "page" : undefined}
-              className={view === v.id ? "active" : ""}
-              onClick={(e) => {
-                e.preventDefault();
-                navigate(v.id, "");
-              }}
-            >
-              <v.icon size={18} aria-hidden="true" />
-              {v.name}
-              {v.id === "jobs" && data && <span>{data.jobs.length}</span>}
-              {v.id === "backups" && data && (
-                <span>{data.workloads.length}</span>
-              )}
-            </a>
-          ))}
+          {views
+            .filter((v) => v.id !== "job-schedule")
+            .map((v) => (
+              <a
+                key={v.id}
+                href={`?view=${v.id}`}
+                aria-label={v.name}
+                aria-current={
+                  view === v.id || (view === "job-schedule" && v.id === "jobs")
+                    ? "page"
+                    : undefined
+                }
+                className={
+                  view === v.id || (view === "job-schedule" && v.id === "jobs")
+                    ? "active"
+                    : ""
+                }
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate(v.id, "");
+                }}
+              >
+                <v.icon size={18} aria-hidden="true" />
+                {v.name}
+                {v.id === "jobs" && data && <span>{data.jobs.length}</span>}
+                {v.id === "backups" && data && (
+                  <span>{data.workloads.length}</span>
+                )}
+              </a>
+            ))}
         </nav>
+        {view === "settings" && (
+          <nav className="settings-subnav" aria-label="Settings navigation">
+            {settingsSections.map((section) => (
+              <a
+                key={section.id}
+                href={`?view=settings&section=${section.id}`}
+                aria-current={
+                  settingsSection === section.id ? "page" : undefined
+                }
+                className={settingsSection === section.id ? "active" : ""}
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigate("settings", "", 1, section.id);
+                }}
+              >
+                {section.name}
+              </a>
+            ))}
+          </nav>
+        )}
         <div className="sidebar-bottom">
           <LockKeyhole size={16} />
           <div>
@@ -739,7 +822,13 @@ export default function BackupCenter() {
                   {lastOperation.parameters.message ||
                     "Queued for validation and dispatch."}
                 </p>
-                {lastOperation.kind==="run"&&lastOperation.parameters.requestedLevel&&<p>Requested backup level: {lastOperation.parameters.requestedLevel}</p>}
+                {lastOperation.kind === "run" &&
+                  lastOperation.parameters.requestedLevel && (
+                    <p>
+                      Requested backup level:{" "}
+                      {lastOperation.parameters.requestedLevel}
+                    </p>
+                  )}
                 <small>
                   Operation {lastOperation.id}
                   {lastOperation.job_id
@@ -756,7 +845,9 @@ export default function BackupCenter() {
               </button>
             </div>
           )}
-          {trackedRestore && selected?.type!=="Restore" ? <RestoreProgress jobId={trackedRestore}/> : null}
+          {trackedRestore && selected?.type !== "Restore" ? (
+            <RestoreProgress jobId={trackedRestore} />
+          ) : null}
           {data?.persistence?.state === "unavailable" && (
             <div className="connection-banner" role="status">
               <Database size={18} />
@@ -1011,19 +1102,21 @@ export default function BackupCenter() {
                   </section>
                 </div>
               )}
-              {view !== "overview" && view !== "settings" && (
-                <div className="view-toolbar">
-                  <SearchField
-                    value={query}
-                    onChange={(v) => navigate(view, v)}
-                  />
-                  <span>
-                    {view === "history"
-                      ? `Catalog total: ${data.sessionTotal} · retrieval limit: ${data.sessionLimit}`
-                      : "Live Bareos metadata"}
-                  </span>
-                </div>
-              )}
+              {view !== "overview" &&
+                view !== "settings" &&
+                view !== "job-schedule" && (
+                  <div className="view-toolbar">
+                    <SearchField
+                      value={query}
+                      onChange={(v) => navigate(view, v)}
+                    />
+                    <span>
+                      {view === "history"
+                        ? `Catalog total: ${data.sessionTotal} · retrieval limit: ${data.sessionLimit}`
+                        : "Live Bareos metadata"}
+                    </span>
+                  </div>
+                )}
               {view === "jobs" && (
                 <DataTable
                   headers={[
@@ -1035,33 +1128,107 @@ export default function BackupCenter() {
                     "Latest result",
                     "Actions",
                   ]}
-                  rows={data.jobs.filter(matches).map((j) => [
-                    <div>
-                      <strong>{j.name}</strong>
-                      <small>
-                        {j.enabled ? "Enabled" : "Disabled"} · {j.fileset}
-                      </small>
-                    </div>,
-                    j.type,
-                    j.client,
-                    j.schedule,
-                    j.storage.join(", ") || "—",
-                    j.latest ? (
-                      <button
-                        className="badge-button"
-                        onClick={() => open(j.latest!)}
-                      >
-                        <Badge value={j.latest.status} />
-                      </button>
-                    ) : (
-                      <Badge value="Not recorded" />
-                    ),
-                    <div className="row-actions">
-                      {j.type === "Backup" ? (
+                  rows={data.jobs.filter(matches).map((j) => {
+                    const lifecycleState =
+                      j.lifecycleState || (j.enabled ? "active" : "disabled");
+                    const lifecycleLabel =
+                      lifecycleState === "retired"
+                        ? "Retired"
+                        : lifecycleState === "disabled"
+                          ? "Disabled"
+                          : "Active";
+                    return [
+                      <div>
+                        <strong>{j.name}</strong>
+                        <small>
+                          {lifecycleLabel} config · {j.fileset}
+                        </small>
+                      </div>,
+                      j.type,
+                      j.client,
+                      j.schedule,
+                      j.storage.join(", ") || "—",
+                      j.latest ? (
                         <button
-                          className="button compact"
-                          disabled={
-                            !controlsReady ||
+                          className="badge-button"
+                          onClick={() => open(j.latest!)}
+                        >
+                          <Badge value={j.latest.status} />
+                        </button>
+                      ) : (
+                        <Badge value="Not recorded" />
+                      ),
+                      <div className="row-actions">
+                        {identity?.role === "Admin" &&
+                          j.type === "Backup" &&
+                          jobInScope(j.name) && (
+                            <JobLifecycleAction
+                              action={j.enabled ? "disable" : "enable"}
+                              jobName={j.name}
+                              onApplied={() => refresh(true)}
+                            />
+                          )}
+                        {identity?.role === "Admin" &&
+                          j.type === "Backup" &&
+                          jobInScope(j.name) && (
+                            <JobLifecycleAction
+                              action="clone"
+                              jobName={j.name}
+                              onApplied={() => refresh(true)}
+                            />
+                          )}
+                        {identity?.role === "Admin" &&
+                          j.type === "Backup" &&
+                          jobInScope(j.name) && (
+                            <JobLifecycleAction
+                              action="remove"
+                              jobName={j.name}
+                              onApplied={() => refresh(true)}
+                            />
+                          )}
+                        {identity?.role === "Admin" &&
+                          j.type === "Backup" &&
+                          jobInScope(j.name) && (
+                            <button
+                              className="button compact"
+                              aria-label={`Edit schedule for ${j.name}`}
+                              onClick={() => navigate("job-schedule", j.name)}
+                            >
+                              Edit schedule
+                            </button>
+                          )}
+                        {j.type === "Backup" ? (
+                          <button
+                            className="button compact"
+                            disabled={
+                              !controlsReady ||
+                              !j.enabled ||
+                              !jobInScope(j.name) ||
+                              (!!j.latest &&
+                                [
+                                  "Running",
+                                  "Waiting",
+                                  "Created",
+                                  "Blocked",
+                                ].includes(j.latest.status)) ||
+                              j.type !== "Backup" ||
+                              activeOperation("run", j.name) ||
+                              !/^[A-Za-z0-9_.-]{1,128}$/.test(j.name)
+                            }
+                            aria-label={`Run ${j.name} now`}
+                            onClick={() =>
+                              askConfirmation("run", j.name, j.level)
+                            }
+                          >
+                            <Play size={12} />
+                            Run now
+                          </button>
+                        ) : (
+                          <small>Restore template</small>
+                        )}
+                        {j.type === "Backup" &&
+                          !activeOperation("run", j.name) &&
+                          (!controlsReady ||
                             !j.enabled ||
                             !jobInScope(j.name) ||
                             (!!j.latest &&
@@ -1071,51 +1238,25 @@ export default function BackupCenter() {
                                 "Created",
                                 "Blocked",
                               ].includes(j.latest.status)) ||
-                            j.type !== "Backup" ||
-                            activeOperation("run", j.name) ||
-                            !/^[A-Za-z0-9_.-]{1,128}$/.test(j.name)
-                          }
-                          aria-label={`Run ${j.name} now`}
-                          onClick={() =>
-                            askConfirmation("run", j.name, j.level)
-                          }
-                        >
-                          <Play size={12} />
-                          Run now
-                        </button>
-                      ) : (
-                        <small>Restore template</small>
-                      )}
-                      {j.type === "Backup" &&
-                        !activeOperation("run", j.name) &&
-                        (!controlsReady ||
-                          !j.enabled ||
-                          !jobInScope(j.name) ||
-                          (!!j.latest &&
-                            [
-                              "Running",
-                              "Waiting",
-                              "Created",
-                              "Blocked",
-                            ].includes(j.latest.status)) ||
-                          !/^[A-Za-z0-9_.-]{1,128}$/.test(j.name)) && (
-                          <small>
-                            {!controlsReady
-                              ? "Live connection required"
-                              : !jobInScope(j.name)
-                                ? "Outside enabled operation scope"
-                                : !j.enabled
-                                  ? "Job disabled"
-                                  : !/^[A-Za-z0-9_.-]{1,128}$/.test(j.name)
-                                    ? "Job name not supported"
-                                    : "Session active"}
-                          </small>
+                            !/^[A-Za-z0-9_.-]{1,128}$/.test(j.name)) && (
+                            <small>
+                              {!controlsReady
+                                ? "Live connection required"
+                                : !jobInScope(j.name)
+                                  ? "Outside enabled operation scope"
+                                  : !j.enabled
+                                    ? "Job disabled"
+                                    : !/^[A-Za-z0-9_.-]{1,128}$/.test(j.name)
+                                      ? "Job name not supported"
+                                      : "Session active"}
+                            </small>
+                          )}
+                        {activeOperation("run", j.name) && (
+                          <small>Operation pending</small>
                         )}
-                      {activeOperation("run", j.name) && (
-                        <small>Operation pending</small>
-                      )}
-                    </div>,
-                  ])}
+                      </div>,
+                    ];
+                  })}
                   page={page}
                   setPage={(v) => navigate(view, query, v)}
                   empty="No matching jobs"
@@ -1327,140 +1468,213 @@ export default function BackupCenter() {
                   />
                 </>
               )}
+              {view === "job-schedule" && (
+                <>
+                  <button
+                    className="button"
+                    onClick={() => navigate("jobs", "")}
+                  >
+                    Back to Jobs
+                  </button>
+                  {identity?.role === "Admin" && jobInScope(query) ? (
+                    <ActivePolicySettings key={query} jobName={query} />
+                  ) : (
+                    <p role="alert">
+                      Select an approved job as an Admin to edit its schedule.
+                    </p>
+                  )}
+                </>
+              )}
               {view === "settings" && (
                 <>
-                  <UserSettings />
-                  {identity?.role === "Admin" && <ActivePolicySettings />}
-                  <PolicySettings storages={data.storages} />
-                  <div className="settings-grid">
-                    <section className="panel">
-                      <div className="section-heading">
-                        <h2>Connection</h2>
-                        <Badge value={status} />
-                      </div>
-                      <dl>
-                        <dt>Director</dt>
-                        <dd>{data.director.name}</dd>
-                        <dt>Bareos version</dt>
-                        <dd>{data.director.version}</dd>
-                        <dt>Transport</dt>
-                        <dd>HTTPS · certificate verification enabled</dd>
-                        <dt>Display timezone</dt>
-                        <dd>Asia/Makassar (WITA)</dd>
-                        <dt>Server timestamps</dt>
-                        <dd>UTC</dd>
-                        <dt>Refresh interval</dt>
-                        <dd>60 seconds while visible</dd>
-                      </dl>
-                    </section>
-                    <section className="panel">
-                      <div className="section-heading">
-                        <h2>Release capabilities</h2>
-                        <LockKeyhole size={18} />
-                      </div>
-                      <dl>
-                        <dt>Monitoring</dt>
-                        <dd>Enabled</dd>
-                        <dt>Run / Cancel</dt>
-                        <dd>
-                          {controlsReady
-                            ? "Confirmed local operations"
-                            : "Unavailable"}
-                        </dd>
-                        <dt>Restore</dt>
-                        <dd>{identity?.role!=="Admin"?"Admin-only":data.capabilities?.directVMRestore?"Direct VMware restore · approved source scope":"Not enabled"}</dd>
-                        <dt>vCenter inventory</dt>
-                        <dd>{data.capabilities?.vmwareInventory?"Inventory browsing available":"Unavailable"}</dd>
-                        <dt>Add to backup</dt>
-                        <dd>
-                          {data.capabilities?.provisioningApply
-                            ? (data.capabilities?.onboardingUuids?.length ? "Controlled apply for approved VMs" : "Dry-run rehearsal only")
-                            : "Not enabled"}
-                        </dd>
-                        <dt>User management</dt>
-                        <dd>Local accounts and roles</dd>
-                        <dt>Credentials</dt>
-                        <dd>Backend only · not sent to the browser</dd>
-                      </dl>
-                    </section>
+                  <div className="section-heading">
+                    <h2>
+                      Settings /{" "}
+                      {
+                        settingsSections.find(
+                          (section) => section.id === settingsSection,
+                        )?.name
+                      }
+                    </h2>
                   </div>
-                  <section className="panel">
-                    <div className="section-heading">
-                      <h2>Application database</h2>
-                      <Badge
-                        value={
-                          data.persistence?.state === "connected"
-                            ? "Connected"
-                            : "Not available"
-                        }
-                      />
-                    </div>
-                    <dl>
-                      <dt>Database</dt>
-                      <dd>{data.persistence?.database || "Not configured"}</dd>
-                      <dt>Transport</dt>
-                      <dd>
-                        {data.persistence?.encrypted
-                          ? data.persistence.certificateValidated
-                            ? "TLS · certificate validation"
-                            : "TLS · certificate validation not enabled"
-                          : "Not verified"}
-                      </dd>
-                      <dt>Stored workloads</dt>
-                      <dd>{data.persistence?.workloads ?? "—"}</dd>
-                      <dt>Observed sessions</dt>
-                      <dd>{data.persistence?.sessions ?? "—"}</dd>
-                      <dt>Audit events</dt>
-                      <dd>{data.persistence?.auditEvents ?? "—"}</dd>
-                      <dt>Recovery cache</dt>
-                      <dd>
-                        Last saved snapshot is restored after backend restart
-                        and remains stale until refreshed.
-                      </dd>
-                    </dl>
-                  </section>
-                  <section className="panel">
-                    <div className="section-heading">
-                      <div>
-                        <h2>Collector audit history</h2>
-                        <p>
-                          Latest 100 persistence events · local collector
-                          identity
-                        </p>
+                  {settingsSection === "users" && <UserSettings />}
+                  {settingsSection === "policies" && (
+                    <>
+                      {identity?.role === "Admin" && <ActivePolicySettings />}
+                      <PolicySettings storages={data.storages} />
+                    </>
+                  )}
+                  {settingsSection === "notifications" && (
+                    <section className="panel">
+                      <h2>Notifications</h2>
+                      <p>
+                        Notification delivery is not configured. Backup alerts
+                        remain available in Overview; email and webhook delivery
+                        are not implemented.
+                      </p>
+                    </section>
+                  )}
+                  {(settingsSection === "connections" ||
+                    settingsSection === "permissions") && (
+                    <>
+                      <div className="settings-grid">
+                        {settingsSection === "connections" && (
+                          <section className="panel">
+                            <div className="section-heading">
+                              <h2>Connection</h2>
+                              <Badge value={status} />
+                            </div>
+                            <dl>
+                              <dt>Director</dt>
+                              <dd>{data.director.name}</dd>
+                              <dt>Bareos version</dt>
+                              <dd>{data.director.version}</dd>
+                              <dt>Transport</dt>
+                              <dd>HTTPS · certificate verification enabled</dd>
+                              <dt>Display timezone</dt>
+                              <dd>Asia/Makassar (WITA)</dd>
+                              <dt>Server timestamps</dt>
+                              <dd>UTC</dd>
+                              <dt>Refresh interval</dt>
+                              <dd>60 seconds while visible</dd>
+                            </dl>
+                          </section>
+                        )}
+                        {settingsSection === "permissions" && (
+                          <section className="panel">
+                            <div className="section-heading">
+                              <h2>Permissions and capabilities</h2>
+                              <LockKeyhole size={18} />
+                            </div>
+                            <dl>
+                              <dt>Monitoring</dt>
+                              <dd>Enabled</dd>
+                              <dt>Run / Cancel</dt>
+                              <dd>
+                                {controlsReady
+                                  ? "Confirmed local operations"
+                                  : "Unavailable"}
+                              </dd>
+                              <dt>Restore</dt>
+                              <dd>
+                                {identity?.role !== "Admin"
+                                  ? "Admin-only"
+                                  : data.capabilities?.directVMRestore
+                                    ? "Direct VMware restore · approved source scope"
+                                    : "Not enabled"}
+                              </dd>
+                              <dt>vCenter inventory</dt>
+                              <dd>
+                                {data.capabilities?.vmwareInventory
+                                  ? "Inventory browsing available"
+                                  : "Unavailable"}
+                              </dd>
+                              <dt>Add to backup</dt>
+                              <dd>
+                                {data.capabilities?.provisioningApply
+                                  ? data.capabilities?.onboardingUuids?.length
+                                    ? "Controlled apply for approved VMs"
+                                    : "Dry-run rehearsal only"
+                                  : "Not enabled"}
+                              </dd>
+                              <dt>User management</dt>
+                              <dd>Local accounts and roles</dd>
+                              <dt>Credentials</dt>
+                              <dd>Backend only · not sent to the browser</dd>
+                            </dl>
+                          </section>
+                        )}
                       </div>
-                      <Database size={18} />
-                    </div>
-                    {auditBusy && (
-                      <p className="panel-footnote" role="status">
-                        Loading audit history…
-                      </p>
-                    )}
-                    {auditError && (
-                      <p className="connection-banner" role="alert">
-                        {auditError}
-                      </p>
-                    )}
-                    <DataTable
-                      headers={["Event", "Actor", "Recorded", "Observed data"]}
-                      rows={auditEvents.map((event) => [
-                        event.event_type,
-                        event.actor,
-                        date(event.created_at),
-                        event.details.kind
-                          ? `${event.details.kind} ${event.details.target} · ${event.details.state}`
-                          : event.event_type.startsWith("identity.")
-                            ? `${event.details.username} · ${event.details.role}`
-                            : event.event_type.startsWith("auth.")
-                              ? "Application session or password event"
-                              : event.event_type.startsWith("policy.")
-                                ? `${event.details.name} · revision ${event.details.revision} · Draft`
-                                : `${event.details.workloads ?? "—"} workloads · ${event.details.sessions ?? "—"} sessions`,
-                      ])}
-                      page={auditPage}
-                      setPage={setAuditPage}
-                      empty="No audit events loaded"
-                    />
-                  </section>
+                      {settingsSection === "connections" && (
+                        <section className="panel">
+                          <div className="section-heading">
+                            <h2>Application database</h2>
+                            <Badge
+                              value={
+                                data.persistence?.state === "connected"
+                                  ? "Connected"
+                                  : "Not available"
+                              }
+                            />
+                          </div>
+                          <dl>
+                            <dt>Database</dt>
+                            <dd>
+                              {data.persistence?.database || "Not configured"}
+                            </dd>
+                            <dt>Transport</dt>
+                            <dd>
+                              {data.persistence?.encrypted
+                                ? data.persistence.certificateValidated
+                                  ? "TLS · certificate validation"
+                                  : "TLS · certificate validation not enabled"
+                                : "Not verified"}
+                            </dd>
+                            <dt>Stored workloads</dt>
+                            <dd>{data.persistence?.workloads ?? "—"}</dd>
+                            <dt>Observed sessions</dt>
+                            <dd>{data.persistence?.sessions ?? "—"}</dd>
+                            <dt>Audit events</dt>
+                            <dd>{data.persistence?.auditEvents ?? "—"}</dd>
+                            <dt>Recovery cache</dt>
+                            <dd>
+                              Last saved snapshot is restored after backend
+                              restart and remains stale until refreshed.
+                            </dd>
+                          </dl>
+                        </section>
+                      )}
+                    </>
+                  )}
+                  {settingsSection === "audit" && (
+                    <section className="panel">
+                      <div className="section-heading">
+                        <div>
+                          <h2>Collector audit history</h2>
+                          <p>
+                            Latest 100 persistence events · local collector
+                            identity
+                          </p>
+                        </div>
+                        <Database size={18} />
+                      </div>
+                      {auditBusy && (
+                        <p className="panel-footnote" role="status">
+                          Loading audit history…
+                        </p>
+                      )}
+                      {auditError && (
+                        <p className="connection-banner" role="alert">
+                          {auditError}
+                        </p>
+                      )}
+                      <DataTable
+                        headers={[
+                          "Event",
+                          "Actor",
+                          "Recorded",
+                          "Observed data",
+                        ]}
+                        rows={auditEvents.map((event) => [
+                          event.event_type,
+                          event.actor,
+                          date(event.created_at),
+                          event.details.kind
+                            ? `${event.details.kind} ${event.details.target} · ${event.details.state}`
+                            : event.event_type.startsWith("identity.")
+                              ? `${event.details.username} · ${event.details.role}`
+                              : event.event_type.startsWith("auth.")
+                                ? "Application session or password event"
+                                : event.event_type.startsWith("policy.")
+                                  ? `${event.details.name} · revision ${event.details.revision} · Draft`
+                                  : `${event.details.workloads ?? "—"} workloads · ${event.details.sessions ?? "—"} sessions`,
+                        ])}
+                        page={auditPage}
+                        setPage={setAuditPage}
+                        empty="No audit events loaded"
+                      />
+                    </section>
+                  )}
                 </>
               )}
             </>
@@ -1470,7 +1684,9 @@ export default function BackupCenter() {
               Backup Center <span className="muted">/</span> Bareos{" "}
               {data?.director.version || "—"}
             </span>
-            <span>Local operations · Restore verification is recorded per test</span>
+            <span>
+              Local operations · Restore verification is recorded per test
+            </span>
           </footer>
         </main>
       </div>
@@ -1481,7 +1697,7 @@ export default function BackupCenter() {
           const next = pendingNavigation;
           dirty.current = false;
           setPendingNavigation(null);
-          if (next) navigate(next.view, next.query, next.page);
+          if (next) navigate(next.view, next.query, next.page, next.section);
         }}
       />
       <RecoveryInspection
@@ -1564,7 +1780,9 @@ export default function BackupCenter() {
                   </small>
                 </div>
               )}
-            {selected.type === "Restore" && <RestoreProgress jobId={selected.id} />}
+            {selected.type === "Restore" && (
+              <RestoreProgress jobId={selected.id} />
+            )}
             <h3>Session log</h3>
             {logBusy && <p role="status">Loading session log…</p>}
             {logError && (
@@ -1617,7 +1835,29 @@ export default function BackupCenter() {
             ? `Request cancellation of Job #${confirmation.target}. This can leave an incomplete backup.`
             : `Start ${confirmation?.target}${confirmation?.requestedLevel ? ` at ${confirmation.requestedLevel} level` : " using its configured default level"} with its pre-job scripts. Bareos may promote an incremental request to Full if required.`}
         </p>
-        {confirmation?.kind==="run" && <NativeSelectField label="Backup level" value={confirmation.requestedLevel||""} disabled={submitting||levelLocked} options={[{value:"",label:"Configured default"},{value:"Full",label:"Full"},{value:"Incremental",label:"Incremental"}]} onChange={value=>setConfirmation(c=>c?{...c,requestedLevel:(value||undefined) as "Full"|"Incremental"|undefined}:c)} />}
+        {confirmation?.kind === "run" && (
+          <NativeSelectField
+            label="Backup level"
+            value={confirmation.requestedLevel || ""}
+            disabled={submitting || levelLocked}
+            options={[
+              { value: "", label: "Configured default" },
+              { value: "Full", label: "Full" },
+              { value: "Incremental", label: "Incremental" },
+            ]}
+            onChange={(value) =>
+              setConfirmation((c) =>
+                c
+                  ? {
+                      ...c,
+                      requestedLevel: (value || undefined) as
+                        "Full" | "Incremental" | undefined,
+                    }
+                  : c,
+              )
+            }
+          />
+        )}
         {confirmation?.level && (
           <p className="confirmation-detail">
             Configured level: {confirmation.level}

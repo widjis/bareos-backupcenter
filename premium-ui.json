@@ -33,7 +33,9 @@
     "observedAlerts": "tests/alerts.spec.ts",
     "vmwareRestoreReview": "tests/vmware-restore-plan.spec.ts",
     "restoreProgress": "tests/restore-progress.spec.ts",
-    "activePolicy": "tests/active-policy.spec.ts"
+    "activePolicy": "tests/active-policy.spec.ts",
+    "jobSchedule": "tests/job-schedule.spec.ts",
+    "policyCompatibility": "tests/policy-compatibility.spec.ts"
   },
   "ownership": {
     "Select/Listbox": "native",

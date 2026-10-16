@@ -11,7 +11,13 @@ Help operators identify protected machines, address operational issues, monitor 
 - Backups: backed-up workloads, recovery points, and restore entry points.
 - Infrastructure: VMware inventory, backup proxies, repositories, and advanced media details.
 - History: backup/restore sessions, logs, and reports.
-- Settings: connections, users, permissions, notifications, and audit access.
+- Settings uses separate subpages, rather than one combined settings page:
+  - Connections: Director connection and application database status (default).
+  - Users: local account creation and account access editing.
+  - Permissions: existing role boundaries and available capabilities; role assignment is managed under Users.
+  - Notifications: delivery availability; configuration remains unavailable until implemented.
+  - Audit: collector and application audit events.
+  - Policies: active schedule/retention and draft backup policies.
 
 Job configuration and available backups are separate views. VMware workloads are distinct from the Bareos File Daemon proxy that performs their backups.
 
@@ -57,3 +63,17 @@ The first release uses explicit VM selection. Folder/tag-based automatic enrollm
 ## Current implementation status
 
 Monitoring, application PostgreSQL persistence, and confirmed local Run/Cancel controls are implemented. Operational requests are journaled and audited, with conservative Unknown handling and Director status reconciliation. The release remains single-operator and loopback-only. VMware inventory and local account roles are now implemented. Recovery inspection/gated export code, draft policy editing, onboarding previews and observed alerts/reports are implemented. Live restore, controlled provisioning apply, policy compliance/notifications and production acceptance remain future/in-progress phases. See [OPERATIONS.md](OPERATIONS.md) and [IMPLEMENTATION-REPORT.md](IMPLEMENTATION-REPORT.md) for verification boundaries.
+
+## Per-job schedule editing
+
+Jobs → Edit schedule is the primary entry for a single approved VMware job. It now supports daily, selected weekdays, selected dates each month, monthly ordinal weekdays such as 4th Saturday, hourly intervals within a reviewed backup window, after-job dependencies, optional run-on-failure behavior, and automatic retry count/delay. Full runs use the reviewed cadence for the selected mode; later interval runs in the same window become Incremental. Interval calendars require a reviewed window end. In after-job mode, an optional window end only limits when the dependency trigger may start the run; it is not a promised finish deadline. Monthly dates 29–31 do not run in shorter months. Times remain after 21:00 WITA under the existing operational constraint. Existing priorities and serial execution remain preserved. Retention and maximum volumes remain per job, with complete-chain cleanup safeguards. Preview and explicit confirmed Apply are required. Server-helper synchronization and live apply plus scheduled-run acceptance remain separate work.
+
+## Planned job retirement
+
+Expose distinct Disable schedule, Delete job configuration and Delete backup data workflows. Configuration deletion preserves backup data by default and must retain enough managed identity/resource information for recovery and retention ownership. Backup-data deletion is a separate destructive workflow with explicit chain/media impact review. Shared resources and job dependencies require ownership checks before removal. Track implementation and live acceptance separately in P07-039 and P06-035 of the roadmap; these actions are not implemented yet.
+
+## Planned operational lifecycle expansion
+
+The approved planning backlog includes general job editing (P07-040), job cloning (P07-041), temporary VM maintenance/exclusion (P07-042), repository administration and storage-access probes (P07-043), an upcoming backup calendar (P09-018), full backup-server disaster recovery beyond the application database (P10-019), independent secondary backup copies (P11-013), and periodic backup-integrity checks (P06-036).
+
+Complete the create/edit/disable/clone/delete lifecycle after the scheduling slice. Make full backup-server recovery a production acceptance requirement. Preserve the existing one-VM-per-job design until a verified membership/resource model supports another structure. A second copy must be recoverable independently, and integrity depth must distinguish metadata inspection, data readability/checksums and guest/application recovery. Each capability requires its own implementation, automated/isolated checks and selected live acceptance. These items are planned, not delivered.

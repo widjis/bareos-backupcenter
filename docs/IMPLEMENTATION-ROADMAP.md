@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-Last updated: 2026-10-15 (Asia/Makassar).
+Last updated: 2026-10-16 (UTC+08).
 
 This is the canonical execution and progress tracker for Bareos Backup Center. Product scope lives in [PRODUCT.md](PRODUCT.md); architecture and behavioral decisions live in their dedicated documents. Evidence lives in [IMPLEMENTATION-REPORT.md](IMPLEMENTATION-REPORT.md). This roadmap connects those sources to executable tasks.
 
@@ -9,8 +9,8 @@ This is the canonical execution and progress tracker for Bareos Backup Center. P
 - Local dashboard, authentication/roles, application persistence, monitoring, scoped Run/Cancel and VMware inventory are implemented. Services remain loopback-only.
 - PNET live onboarding, Full/Incremental, isolated VMDK restore and direct new-VM restore with an isolated OS-boot test have accepted evidence. Original PNET was preserved. Direct restore execution is root-scoped to the seven managed VMware jobs; only PNET has actual restore/boot acceptance. It and supports one disk-datastore mapping, no NIC, power off and Never overwrite.
 - Restore progress polls current status/logs and explicitly delayed Catalog counters; a verified percentage/ETA is unavailable. Restore history uses exact journal-mapped VM destination names and distinguishes native warnings from explanatory classification.
-- Verification is recorded per slice below and in IMPLEMENTATION-REPORT.md. The latest full backend checkpoint is 100 passed with one POSIX-only module skipped on Windows; later focused changes have their own checks. Do not interpret an older full-suite checkpoint as a fresh full-release validation.
-- Current focus: manual backup levels and reviewed active schedule/retention management; live policy-apply acceptance is separate. General policy application/provisioning expansion, multi-datastore mappings, guest-file/application verification, production deployment/hardening and other unchecked tasks remain open.
+- Verification is recorded per slice below and in IMPLEMENTATION-REPORT.md. The latest full backend checkpoint is 209 passed with one POSIX-only module skipped on Windows; later browser/live checks still have their own separate evidence and blockers. Do not interpret a single checkpoint as blanket release acceptance.
+- Current focus: per-job scheduling code and isolated verification are implemented through interval, ordinal, dependency, retry and reviewed backup-window controls. Helper synchronization on the Bareos server and PNET-only live apply/scheduled-run acceptance remain separate gates before any broader rollout. Job lifecycle work follows after those gates. General policy application/provisioning expansion, multi-datastore mappings, guest-file/application verification, production deployment/hardening and other unchecked tasks remain open.
 - The full application roadmap is not complete. Accepted restore/boot evidence is scoped to recorded test VMs and does not verify every guest file or application.
 
 ## Tracking rules
@@ -409,12 +409,13 @@ The roadmap splits the earlier product outline into implementation-sized milesto
 
 ## Next work queue
 
-1. Implement the reviewed controlled provisioning service boundary and managed preparation/retention mappings behind the current durable rehearsal flow.
-2. Preserve reviewed previews, staged assignments and existing configuration guards; keep live Bareos apply disabled until explicit operator approval.
-3. Live Run/Cancel/export/provisioning acceptance is deferred by the operator; do not execute these operations or target preparation.
-4. Finish Bareos ACL/profile mapping, accepted policy coverage/notification channels, production recovery/TLS/retention and deployment gates.
+1. Execute P07-035D on PNET only: run a reviewed live per-job scheduling apply plus scheduled-run acceptance while preserving the current production schedules for the other managed jobs.
+2. Complete the requested job lifecycle in order: general edit P07-040, disable/maintenance P07-042, clone P07-041 and retirement P07-039. Preserve recovery history and current resource ownership constraints.
+3. Implement and drill full backup-server recovery P10-019 before production acceptance, alongside existing application database recovery P10-004–005. Develop repository administration P07-043 and independent backup-copy P11-013 on their stated dependencies.
+4. Add the upcoming calendar P09-018 and integrity checks P06-036; retain existing alert/notification, recovery-test, application-consistency and production deployment tasks.
+5. Record live acceptance for each specifically selected backup/restore/configuration effect. Planning and isolated checks do not authorize destructive actions or select production policy values. Keep existing service scopes and active configuration unchanged until their reviewed actions are confirmed.
 
-P04-026 through P04-030 and P06/P07 live acceptance remain open. Do not mark them complete from fixture, syntax or local UI checks.
+Earlier historical rollout notes are evidence of those slices, not a blanket current ban or authorization. Remaining unchecked acceptance tasks stay open; fixture, syntax and local UI success do not close live acceptance.
 
 ## Open decisions and constraints
 
@@ -516,3 +517,229 @@ Current slice: P06-027/028. No console restore command is used for preview, sinc
 - [x] **P06-034A** — Extend the root direct-restore allowlist to all seven managed VMware jobs, retaining isolated new-VM constraints. Root-owned mode 0600 allowlist installed with rollback copy.
 - [x] **P06-034B** — Read-only preflight each latest successful recovery point; record failures separately from restore execution.
 - [ ] **P06-034C** — Actual restore and guest acceptance for the six additional VMs; requires a selected test destination and execution request.
+
+## Settings navigation — 2026-10-16
+
+- [x] **P02-035A** — Split Settings into URL-addressable Connections, Users, Permissions, Notifications, Audit and Policies subpages using existing navigation/draft guards.
+- [x] **P02-035B** — Verify submenu isolation, reload, draft protection and responsive keyboard behavior.
+
+## Per-job scheduling — 2026-10-16
+
+- [x] **P07-035A** — Add a typed per-job calendar and deterministic native Schedule generation with separate Full cadence and recovery-chain volume reserve validation.
+- [x] **P07-035B** — Add Jobs → Edit schedule using the existing reviewed policy owner, exact one-job scope, current-state hydration and draft guard.
+- [x] **P07-035C** — Validate generated calendars with native Director syntax, read-only preview, isolated helper checks and automated verification without changing active jobs.
+- [ ] **P07-035D** — Live operator-selected calendar apply and resulting scheduled-run acceptance.
+- [x] **P07-035E** — Prepare the concrete helper synchronization package, hashes, ownership/modes, validation steps and rollback plan without deploying it.
+- [x] **P07-035F** — Synchronize the Bareos server helper to the reviewed scheduling contract and confirm preview/apply compatibility before any live Apply.
+- [x] **P07-036** — Periodic intervals and monthly ordinal-weekday schedules.
+- [x] **P07-037** — After-job dependencies with cycle checking and restart-safe outcomes.
+- [x] **P07-038** — Failure-specific retry plus reviewed interval/start-window controls without claiming a hard finish-time cutoff.
+
+- 2026-10-16: P07-035A–C verified locally without changing the active seven-job schedule. `.venv\Scripts\python.exe -m pytest -q backend/tests` passed `125 passed, 1 skipped`; `python integration/check_calendar_policy.py` passed with native Bareos mutations mocked; `npm run typecheck` and `npm run build` passed. Read-only comparison against `10.60.10.77` confirmed that the deployed helper still uses the older contract and rejects fields such as `trigger_mode`, so helper synchronization remains separate from this local completion.
+- 2026-10-16: P07-035E completed as documentation and packaging work only. `docs/SCHEDULING-HELPER-SYNC.md` now records the file set, SHA-256 baselines, required ownership/modes, backup procedure, syntax validation steps and rollback plan for synchronizing `/opt/bareos-api/active_policy_contract.py`, `/opt/bareos-api/apply_backup_policy.py` and the new `/opt/bareos/25.1.1/lib/bareos/scripts/backupcenter-after-job.py`.
+- 2026-10-16: Completed P07-036–038 in local code and reviewed UI/helper contracts. Per-job schedules now support hourly intervals inside reviewed window slots, ordinal monthly weekdays such as 4th Saturday, after-job dependencies with optional run-on-failure behavior and cycle rejection, plus retry count/delay controls backed by native Job directives. The backup-window contract was narrowed during audit: interval calendars use the end time to bound generated start slots, and after-job mode uses it only as an allowed-start gate. `Max Run Sched Time` was removed because it did not prove the UI's finish-time claim. Browser execution remains environment-blocked here until the Playwright browser binary is installed; live apply/scheduled-run acceptance remains P07-035D and server helper synchronization remains P07-035F.
+
+## Job retirement and backup deletion — planned 2026-10-16
+
+- [ ] **P07-039A** — Define separate Disable schedule, Delete job configuration (preserve backups by default), and Delete backup data actions. Inspect active jobs, after-job dependencies, shared resources, retained recovery chains and cleanup ownership before deletion. Preserve a managed retirement record so retained backups remain discoverable and restorable after the live job definition is removed.
+- [ ] **P07-039B** — Implement Admin-only reviewed job-configuration removal with explicit confirmation, durable intent/audit, idempotency, Director syntax/reload verification and rollback. Do not remove shared Pool, Storage, FileSet or Schedule resources without separate verified ownership checks. Never delete backup data implicitly.
+- [ ] **P07-039C** — Verify job-removal scope, unauthorized access, active-job/dependency rejection, interrupted delivery, rollback, retained-backup discovery and restore compatibility with automated and isolated helper/browser tests.
+- [ ] **P07-039D** — Accept live removal of an explicitly selected disposable job while demonstrating that its retained backups remain available for recovery.
+- [ ] **P06-035A** — Implement separately reviewed backup-data deletion with exact recovery-point/chain/media impact, retained-chain and shared-volume checks, explicit destructive confirmation and durable audit/reconciliation. Configuration removal must not imply authorization for data deletion.
+- [ ] **P06-035B** — Test backup-data deletion in isolated fixtures and accept a specifically approved disposable backup dataset separately from job removal.
+
+Dependencies: canonical confirmed-operation/authorization contracts and managed-resource ownership. Execution authorization is required for the specific deletion target; these unchecked tasks record implementation scope only. Existing scheduled chain-retention cleanup must be assessed so removing a job does not unexpectedly retire preserved backups or prevent deliberate later cleanup.
+
+- 2026-10-16: Added explicit retirement/deletion tasks after the operator asked whether Delete job was tracked. No deletion implementation or live deletion was performed.
+
+## Operational lifecycle gaps — planned 2026-10-16
+
+The operator approved recording the eight gaps identified during the roadmap review. This expands planning scope only. Each group separates implementation, verification and live acceptance; all new tasks remain unchecked.
+
+### General job editing — P07-040
+
+Dependencies: reviewed provisioning/resource ownership P07-007, P07-010–013; versioned exact-job schedule editing P07-035; retirement identity preservation P07-039.
+
+- [ ] **P07-040A** — Define stable job identity independent of display/native names, supported VM membership, descriptions and repository changes. Preserve the current one-VM-per-job engine mapping unless a separately verified multi-VM model is introduced; preview required Full baselines, resource changes and historical recovery impact before identity, FileSet or repository changes.
+- [ ] **P07-040B** — Implement Jobs → Edit for supported names/descriptions, VM assignment and repository using revision checks, exact ownership, Admin authorization, reviewed apply, rollback and audit. Unsupported regrouping must be explicit, not simulated.
+- [ ] **P07-040C** — Verify rename/move, old recovery-point lookup, shared resources, concurrent edits, active jobs and rollback in automated/isolated/browser checks.
+- [ ] **P07-040D** — Accept changes to an explicitly selected disposable job and demonstrate recovery access to its old backups.
+
+### Clone job — P07-041
+
+Dependencies: controlled provisioning and P07-040 identity/resource contracts.
+
+- [ ] **P07-041A** — Implement a reviewed clone draft with a unique name and explicitly selected VM, repository and schedule; do not duplicate secrets, history or shared-resource ownership. Keep automatic execution disabled until explicitly confirmed.
+- [ ] **P07-041B** — Test name collisions, duplicate protection of one VM, resource isolation, authorization, interrupted apply and rollback.
+- [ ] **P07-041C** — Accept creation of a selected disposable clone; first backup remains a separate confirmed action.
+
+### Per-VM maintenance/exclusion — P07-042
+
+Dependencies: job scope/assignment identity, P07-037 dependencies and P09-008 alert maintenance rules. This controls execution and is distinct from muting alerts.
+
+- [ ] **P07-042A** — Define and implement temporary suspension/exclusion with reason, start/end/timezone and explicit resume behavior; retain configuration and backup history. Define handling of manual runs, active sessions, dependent jobs and missed runs without silently cancelling or replaying them.
+- [ ] **P07-042B** — Test expiry, restart, clock boundaries, explicit resume, authorization, dependency behavior and accurate UI/audit state.
+- [ ] **P07-042C** — Accept a chosen maintenance interval and resume on a disposable workload without deleting its backups.
+
+### Repository administration — P07-043
+
+Dependencies: resource ownership/provisioning, P08 permissions and P11-004 actual filesystem metrics.
+
+- [ ] **P07-043A** — Define repository identities, paths, mount/storage ownership, supported SMB/local capabilities and secret handling; distinguish physical capacity, quotas and Bareos volume limits.
+- [ ] **P07-043B** — Implement reviewed add/edit/disable, bounded write/read/delete probe in a dedicated temporary location, mount availability, capacity thresholds and disconnected/read-only state. Refuse live backup writes to a missing mount's underlying local directory. Keep repository removal separate from data deletion.
+- [ ] **P07-043C** — Test access denial, full/quota-limited storage, disconnect/remount, credential failures, probe cleanup, shared-use impact and concurrent edits without exposing secrets.
+- [ ] **P07-043D** — Accept one explicitly selected repository and its probe; backup migration and deletion require their own reviewed scope.
+
+### Upcoming backup calendar — P09-018
+
+Dependencies: P07-035–038 schedule/dependency/window semantics and current Director state.
+
+- [ ] **P09-018A** — Implement timezone-explicit upcoming runs with job, expected level and schedule source; distinguish clock-triggered runs from after-job conditional starts. Show overlap/queue risk as an estimate, never promise actual runtime or infer missed-run replay.
+- [ ] **P09-018B** — Test month lengths, weekday/ordinal rules, disabled/maintenance jobs, dependencies, stale configuration and day/time boundaries; compare supported cases with native Director schedule output.
+- [ ] **P09-018C** — Accept selected real calendar examples and their observed scheduling behavior.
+
+### Full backup-server disaster recovery — P10-019
+
+Dependencies: P10-004–007 application database recovery/PKI/secrets, repository access and P08 authorization. Prioritize before production acceptance; application database backup alone is insufficient.
+
+- [ ] **P10-019A** — Inventory Director/Catalog, Storage/File Daemon configuration, source-build/plugin/VDDK dependencies, certificates, encrypted secret recovery, helper receipts, allowlists, retention scripts/timers, mounts and application configuration. Define consistency, versioned manifests, off-server custody, recovery order and recovery objectives.
+- [ ] **P10-019B** — Implement protected configuration/Catalog backup and documented recovery procedures with access controls and retention; do not expose credentials in ordinary exports/logs. Verify required dependency artifacts and licensing availability rather than assuming bundled redistributability.
+- [ ] **P10-019C** — Perform an isolated clean-host restore drill including Catalog/media reconciliation, mounts, restored identities/permissions and duplicate-scheduler prevention; measure recovery and test a representative backup restore.
+- [ ] **P10-019D** — Obtain operator acceptance of the disaster-recovery evidence, recovery objectives, custody and operational runbook.
+
+### Independent backup copy — P11-013
+
+Dependencies: P07-043 repository identity/access, complete-chain/media inspection and P10-019 recoverable metadata. Capability selection requires verified installed Bareos support before promising behavior.
+
+- [ ] **P11-013A** — Evaluate native copy/migration or supported export mechanisms; define independent target, schedule, retention, encryption and failure-domain separation. Distinguish a copy from migration and filesystem duplication of live volumes.
+- [ ] **P11-013B** — Implement reviewed copy policy and durable copy-session status with chain/dependency handling, bounded retries and target capacity/access checks; keep source data intact.
+- [ ] **P11-013C** — Test partial copy, interrupted transfer, target outage, source cleanup, independent retention and Catalog/media discovery with isolated fixtures.
+- [ ] **P11-013D** — Accept a selected copied backup by restoring from the secondary location without relying on the primary repository.
+
+### Scheduled backup-integrity checks — P06-036
+
+Dependencies: complete-chain/media availability, verified native read/verify capabilities, repository load controls and P09 notifications. Separate from guest boot/application recovery P11-008–009.
+
+- [ ] **P06-036A** — Define supported verification depth: Catalog/chain availability, actual media readability and content checksums where available; make unsupported depth and last-check age explicit.
+- [ ] **P06-036B** — Implement bounded scheduled/on-demand verification with durable results, load limits, pause/cancel semantics and alerts. Never label metadata-only checks as full data integrity or successful guest recovery.
+- [ ] **P06-036C** — Test missing media, deliberate corruption in disposable fixtures, read errors, incomplete coverage, interruption and resource contention.
+- [ ] **P06-036D** — Accept a selected real verification run and demonstrate detection of a controlled disposable fault without modifying production backups.
+
+### Remaining decisions
+
+Confirm the supported scope of multi-VM jobs before relaxing the existing per-VM architecture (P07-040A). Choose the secondary repository/failure domain (P11-013A), full-server backup custody and recovery targets (P10-019A), and supported integrity-check depth (P06-036A) during their design work. These unresolved details do not block the current documentation update.
+
+- 2026-10-16: Recorded all eight operational gaps, mapped existing overlapping tasks as dependencies rather than replacing them, and refreshed the next work queue. Job lifecycle follows scheduling; full backup-server recovery is a production gate. No implementation, configuration change, external notification or destructive operation was performed.
+
+## Coordinated acceleration — 2026-10-16
+
+The operator explicitly authorized parallel TRAE delegation and requested GPT-5.4 for every delegated task. Three bounded tasks were submitted on the existing Bareos workspace with disjoint file ownership; the coordinator owns integration and canonical documentation. No production effects are delegated.
+
+- [ ] **P07-044A** — Audit/fix scheduling execution, duplicate/restart/window/retry semantics and isolated helper tests. TRAE conversation a5737b4d7108458cb30f9f8677157b85; task b57776e8130949bdb9d7c0c4f39b24d4. In progress; no helper deployment or policy Apply.
+- [x] **P02-036** — Make restore-progress browser fixtures deterministic and exercise current scheduling flows using installed Chrome. TRAE conversation db57757973a448e09e15c0adab3f0565; task f8f31871ba4546cf9904cb2d3ee5bccf. In progress; mutations intercepted.
+- [x] **P07-044B** — Implement/test a pure lifecycle preview contract for disable, clone draft and config removal preserving backups. TRAE conversation 2e032a9cf8ea450fa45e8ec20db8164d; task 251992635b7b4067b0769d2790fb6605. In progress; no execution/API/UI activation.
+- [ ] **P07-044C** — Coordinator verifies API/helper compatibility gates, reviews peer diffs and reruns integration/regression checks. Keep actual helper deployment and user-selected live policy acceptance separate.
+
+Do not infer completion from accepted task creation or peer reports. Preserve existing uncommitted edits. Lifecycle preview does not deliver Delete/Clone execution. Production schedules, backups and data remain outside delegated mutation scope.
+
+- [x] **P07-044D** — Coordinator implements and verifies a fail-closed API/UI helper compatibility gate. Eight isolated backend checks and two intercepted browser checks passed; live read-only current/preview confirmed old helper disables Apply while allowing an explicitly local-only review. This does not close peer execution-safety review or live helper deployment.
+
+- 2026-10-16: Browser and lifecycle TRAE tasks completed; actual response model gpt-5.4 verified. Coordinator fixed the real empty-dependency-selector bug, corrected lifecycle serialization/fixtures and added fail-closed trusted-role/registry-coverage checks. Seven integrated browser tests and 145 backend tests passed (one POSIX-only skip). This accepts deterministic tests and a pure lifecycle preview contract, not live Clone/Delete or scheduling runtime deployment. P07-044A/C remain open while scheduling execution review continues.
+
+## Interrupted scheduling rewrite recovery — 2026-10-16
+
+P07-044A remains unchecked. TRAE conversation a5737b4d7108458cb30f9f8677157b85 is interrupted/canceled; it deleted integration/apply_backup_policy.py before delivering a replacement. The coordinator recovered the full pre-delete source from the task's captured file-read stdout, preserved a separate recovery copy under .local, and restored the working file without resetting to an older Git/server version. Python compilation and the isolated helper apply/dependency/replay/retry/rollback fixture passed with native mutations mocked. Git now reports Modified, not Deleted. No deployed helper, active job, schedule, backup data or production file was changed.
+
+Before any further delegated rewrite, preserve a coordinator-owned pre-task source snapshot and require in-place/atomic replacement rather than delete-then-create. A replacement must compile before the old source can be displaced. Do not resume or resubmit the interrupted task without a new bounded scope and recovery snapshot.
+
+## Acceleration batch 2 — 2026-10-16
+
+- [x] **P07-045A** — Read-only bounded scheduling safety audit of the restored helper; no delegated source rewrite or deployment. Coordinator snapshot preserved under .local/delegation-snapshots/batch2-20261016.
+- [x] **P07-045B** — Build/test a fail-closed read-only Disable preview evidence adapter, keeping missing identity/registry proof explicit.
+- [x] **P10-020** — Draft a bounded backup-server disaster recovery inventory/runbook and acceptance checklist; no backup/export/restore execution.
+- [x] **P07-045C** — Coordinator reviews the three results, integrates only verified preview capability, and runs relevant regression checks. Actual Disable, policy Apply, helper deployment and disaster-recovery acceptance remain separate.
+
+All delegated tasks explicitly use gpt-5.4, disjoint new-file ownership, no delete-then-create, and no production effects. The previous interrupted task is not resumed blindly; context is carried into new bounded tasks because the current connector lacks follow-up support.
+
+### Batch 2 reviewed results and next queue
+
+All three TRAE tasks completed with observed model gpt-5.4. Conversations: audit 23019a0f434e4d3cabf784623c8c94c8; adapter df06af055d8241528f632d5badd04a37; recovery be87017ec83b45efa417a0d5d4ef8530. Coordinator accepted the bounded audit, pure adapter and draft runbook only. No API/UI execution was activated. Existing protected source hashes match the pre-task snapshot.
+
+Coordinator tightened adapter evidence validation: missing operations/dependencies/intents cannot imply empty registries, malformed evidence produces blockers, and raw source errors are withheld. Full backend regression: 155 passed, 1 POSIX-only skipped. Recovery draft corrected to seven jobs; 953 words. Audit: 865 words.
+
+- [x] **P07-046A** — Verify exact source-hook identity and uniqueness, including stale hooks on other jobs; add isolated negative fixtures.
+- [x] **P07-046B** — Require positive queued JobId acknowledgement, then design persistent source-run/target deduplication and restart reconciliation; a lock alone does not solve replay.
+- [x] **P07-046C** — Resolve before-window delivery with durable deferral or explicit unsupported rejection; preserve lossless after-job/retry read-back.
+- [ ] **P07-046D** — Build authoritative stable-identity/resource/operations collectors before wiring Disable preview to HTTP/UI. Actual Disable execution remains separate.
+
+Next implementation priority is P07-046A/B/C while live scheduling Apply stays blocked. Native helper deployment and real acceptance are not completed by offline mocks. P10-019 disaster-recovery acceptance remains open; the new runbook is a draft.
+
+## Acceleration batch 3 — 2026-10-16
+
+User authorized implementation of the agreed next queue. Protected source snapshot: .local/delegation-snapshots/batch3-20261016. Three GPT-5.4 tasks own disjoint new modules/tests: source-hook verification (P07-046A), durable trigger runtime (P07-046B/C), and conservative Disable evidence collection (P07-046D). Coordinator owns helper/API integration, regression and documentation. Native deployment and PNET acceptance follow only after reviewed offline checks.
+
+### Batch 3 integration evidence and remaining gates
+
+All three delegated results completed with actual response model gpt-5.4: hooks conversation 10bd47b8a96b4a1a9694b021d385ad71 / task 3be26861e6444b15818321b0b2d0ec29; runtime 276e0c42e6cf42aaa8ddd11f0eb4cdb3 / task 98d30c80f7be480586da543a96e51a93; collector a05ccd2d361f4abd8210bd58a3e7d0f2 / task 43bf8baccbbd48e69bdd20c355417ca3.
+
+P07-046A/B close only their local source/test scope. Coordinator integrated exact unique hooks and retry drift checks in current/plan/verify, explicit source JobId, durable trigger generation, date expiry, successful native acknowledgement, terminal queued-job reconciliation and no automatic resend of ambiguous deliveries. Local snapshot fallback explicitly labels unverified fields. Schema compatibility alone no longer enables Apply; native execution readiness is separately required.
+
+- [x] **P07-047** — Verify Admin-only read-only Disable review API/UI, missing-proof/error/retry/timeout/close states, mobile layout and regression. Execution remains unavailable.
+- [ ] **P07-048** — Verify and install reviewed drain service/timer and helper companions in an isolated Linux environment; test native permissions, source JobId expansion, restart, missing Catalog rows and console acknowledgement. Prepared unit files are not activation evidence.
+- [ ] **P07-049** — After native gates, conduct reviewed PNET-only scheduling Apply and scheduled-run acceptance before expanding to other jobs.
+
+P07-046C remains open for native deferred-drain delivery acceptance. P07-046D remains open for authoritative stable-identity/resource/operation collectors; the current monitoring collector deliberately produces blockers, not fabricated proof. Actual Disable/Enable, Clone/Edit and configuration deletion remain subsequent lifecycle work.
+
+- 2026-10-16 batch-3 acceptance: full backend checkpoint 190 passed / 1 POSIX-only skip; final collector role/API hardening 14 focused tests passed. Full browser suite 41 passed, including modal loading/cancel/error/retry/focus/390px/a11y. TypeScript and Next production build passed; git diff whitespace check passed. Isolated helper validates actual current/verify read-back, duplicate-hook/retry-drift rejection and rollback with native effects mocked. Local backend refreshed only after unresolved operation count was zero. Authenticated local preview returned HTTP 200 with executionSupported=false and explicit missing-proof blockers; current-policy read returned HTTP 200, Apply disabled. No production scheduling or backup data changed. Static premium audit reports only its known root DESIGN.md assumption; AGENTS.md explicitly requires canonical docs/DESIGN.md.
+
+## Existing-conversation continuation — 2026-10-16
+
+User explicitly requires reuse of existing TRAE conversations. Same-conversation follow-up has now been tested live on the hook conversation with gpt-5.4, unchanged hub/Desktop IDs and no tools. This supersedes earlier connector-limitation notes. No new conversations are authorized for this batch. Runtime conversation 276e0c42e6cf42aaa8ddd11f0eb4cdb3 continues isolated POSIX validation (P07-048); lifecycle conversation 2e032a9cf8ea450fa45e8ec20db8164d continues explicit authoritative-proof normalization (P07-046D/task7 dependency). Coordinator owns Linux validation and integration. Pre-task source snapshots are under .local/reuse-batch4/snapshot. Actual disable execution and production scheduling remain unaccepted.
+
+### Existing-conversation results and nine-task status
+
+Both follow-ups completed with observed gpt-5.4 and unchanged hub/Desktop chat IDs. New execution IDs are expected per follow-up and are not new conversations: runtime 34d1ff4c00084fee7cfc572e7d098e6a; lifecycle e625e108513c8e5f4d4eff3db52241f2. Protected existing source hashes remained unchanged. No additional conversation was created.
+
+P07-046C now closes its local implementation/isolated-native scope: eight POSIX process scenarios include before-window Deferred -> Queued exactly once after opening and expiry on the next date. Native actual Bareos dispatch remains part of P07-049. P07-048 stays open for installed helper/real console, source JobId expansion and controlled PNET acceptance.
+
+| Original task | Current state | Remaining acceptance |
+|---|---|---|
+| 1 Hook identity/uniqueness | Implemented and tested | Production helper activation under task 6 |
+| 2 JobId/dedup/restart safety | Implemented; POSIX process tests pass | Actual console/source identity under task 6 |
+| 3 Window/read-back | Implemented; isolated native deferral/drain tests pass | Actual scheduled PNET delivery under task 6 |
+| 4 Disable preview | API/UI delivered | Actual execution belongs to task 7 |
+| 5 Integration/regression | Current batch accepted, 206 backend passed / 1 skipped | Recheck after future changes |
+| 6 Helper sync/PNET | Native preflight advanced; not deployed or accepted | Install/review exact candidate, source JobId/console proof, PNET scheduled run |
+| 7 Disable/Enable | Not implemented; pure proof normalizer added | Authoritative collectors, durable execution, API/UI and native acceptance |
+| 8 Clone/Edit | Not complete; preview contract only | End-to-end implementation and acceptance |
+| 9 Remove job config | Not implemented; preview contract only | Retained-backup evidence, execution and acceptance |
+
+Native evidence: four candidate configurations pass installed Bareos 25.1.1 Director -t; production config hashes unchanged. systemd static verification exits 0 with unrelated existing netplan/snapd warnings. Eight harness scenarios pass on Python 3.10 with actual fcntl and separate processes, fake SQL/console only. The same harness passes twice as bareos under a unique hardened transient timer, including timer restart; temporary units are stopped/cleaned and production drain units were not activated. Native scope and retained private-server evidence are in NATIVE-SCHEDULING-VALIDATION.md and .local/reuse-batch4/evidence.json. Full backend regression: 206 passed, 1 POSIX-only skip, existing AnyIO deprecation. UI unchanged; previous 41-browser checkpoint was not rerun.
+
+## Task 6 helper synchronization and controlled PNET acceptance — 2026-10-16
+
+User authorized continuation. Coordinator will preserve rollback copies, synchronize reviewed helper/runtime/unit candidates, verify native read-back and perform only a controlled PNET acceptance. Existing calendar cadence/time and all other VM job settings must stay intact. Broad Apply remains blocked pending explicit acceptance scope. Existing audit conversation is reused for a final read-only release review; no new conversation. Source snapshot and hashes: .local/helper-sync-20261016.
+
+### Task 6 installed-helper and native PNET checkpoint — 2026-10-16
+
+Reused audit conversation 23019a0f434e4d3cabf784623c8c94c8 (execution d6aab41157214342da159fa2a8747806, observed gpt-5.4), no new conversation. Seven helper/runtime/unit files synchronized with exact-source hashes, active-job/unresolved-receipt guards, atomic replacement and recovery copies. Latest rollback directory /root/backupcenter-helper-sync/20261016T070847Z-b2e70b1d. P07-035F closes helper synchronization/contract compatibility only.
+
+Native temporary Admin source Job37 expanded source `%i` correctly and queued exactly one VMware-PNET Incremental Job38. Job38 completed T/0 errors, 25,151,998 bytes, six plugin files, 07:05:46–07:05:55 UTC. The Admin response parser did not confirm source acknowledgement; exact Catalog/receipt reconciliation confirmed Job37 without resubmission. Runtime replay returned Job38, with exactly one PNET run since preparation. Temporary source config removed and original config hashes verified before the separate policy Apply.
+
+PNET-only policy Apply 5833207e-1c05-4cc1-b5b3-4f922631c584 is Applied, native read-back/replay verified. It creates BC-Policy-PNET while preserving Full 1/15, Incremental other days at 21:30 WITA, retention30/max6. All unselected configs unchanged. Coordinator fixed schedule-only plans to avoid unrelated shared retention-script migration; explicit retention-change fixture retains that reviewed migration. Shared retirement script stayed unchanged during acceptance.
+
+P07-048 remains unchecked. Earlier in this batch, automatic approval review rejected persistent timer/service activation before explicit human approval existed; that rejection was not bypassed. After the human explicitly approved permanent activation, the coordinator rechecked the default runtime queue and the seven installed candidate hashes through the existing root wrapper, confirmed zero default receipts and 7/7 manifest hash matches, then ran `systemctl enable --now backupcenter-after-job-drain.timer` and `systemctl start backupcenter-after-job-drain.service`. Verified state: timer enabled/active with `SubState=waiting`, oneshot service `Result=success` and `ExecMainStatus=0`, `/var/lib/bareos-after-job-runtime` owned by `bareos:bareos` mode `0700`, Director/SD/FD active, zero default receipts, and one natural timer trigger observed at `Fri 2026-10-16 07:26:00 UTC` with next trigger `Fri 2026-10-16 07:27:00 UTC`. Keep P07-048 open until the remaining missing Catalog identity edge acceptance is verified. P07-049 remains unchecked for ordinary 21:30 clock-triggered acceptance; manual native handoff, installed drain activation and PNET-only Apply are accepted, but the normal scheduled run has not yet been observed.
+
+Final local regression 209 passed, 1 skipped; helper fixture (including no unrelated retention migration and explicit-retention migration) passed; three helper-sync checksum/rollback fixtures passed. Authenticated local API current HTTP200, helperCompatible=true, general Apply=false, PNET schedule BC-Policy-PNET. See HELPER-SYNC-ACCEPTANCE.md and .local/helper-sync-20261016/evidence.json.
+
+- Approved permanent drain activation was executed by TRAE through the existing scheduling conversation 23019a0f434e4d3cabf784623c8c94c8, execution 48b840368e1984c859b176b4fa85dcd8, observed gpt-5.4. Coordinator independently verified enabled/active/waiting timer, successful oneshot result, secure state directory, empty receipts and healthy Bareos services using read-only checks. No new conversation or backup was created. User preference: prioritize feasible implementation/verification through TRAE, reuse existing conversations, retain coordinator review.
+
+## Lifecycle implementation batch 5 — 2026-10-16
+
+The operator explicitly deferred task 1 (ordinary 21:30 scheduling acceptance) until tonight and authorized tasks 2–5: Disable/Enable, per-job Edit, Clone and configuration removal with backups preserved. Reuse existing TRAE conversations with GPT-5.4; no new conversations. Backend/native candidate ownership: 2e032a9cf8ea450fa45e8ec20db8164d (execution 7005fb2507fc9dc22a74da340868d7f9). Frontend/browser ownership: db57757973a448e09e15c0adab3f0565 (execution 4eadfa0745b141e2b024499fc1ee6588). Independent review: 23019a0f434e4d3cabf784623c8c94c8 (execution b9537732aa1a4cada8513f50bbf4d402). Coordinator owns integration review and canonical tracking. Snapshot: .local/lifecycle-batch5/snapshot.
+
+- [ ] **P07-050A** — Implement authoritative lifecycle collection and reviewed Disable/Enable execution candidate, including automatic after-job/retry suppression, identity/revision validation, durable receipts and rollback; verify in isolation. Depends on P07-046D. Live activation/acceptance remains separate.
+- [ ] **P07-050B** — Integrate Jobs actions and review/result UI for Disable/Enable, existing per-job schedule editing, Clone and remove-configuration-preserve-backups; expose genuine readiness/blockers and unknown-delivery status.
+- [ ] **P07-050C** — Verify backend/native fixtures, browser behavior, retained recovery discovery, auth, stale reviews, concurrency, shared resources and rollback; record implementation/deployment/acceptance separately.
+
+P07-039A–C, P07-040A–C and P07-041A–B remain the existing scope owners for removal, general editing and clone work; append evidence without closing unsupported or unverified scope. No production job/configuration/data deletion, real backup/restore, broad Apply activation or clock-triggered acceptance is authorized by this implementation batch. No backup-data deletion UI is planned in this batch. P07-049 stays pending tonight.

@@ -51,7 +51,7 @@ test("live data, navigation, filtering, session details, accessibility and mobil
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(link).toBeFocused();
   await page.getByRole("link", { name: "Infrastructure", exact: true }).click();
-  await expect(page.getByText("6 configured VMware workloads")).toBeVisible();
+  await expect(page.getByText(/\d+ configured VMware workloads/)).toBeVisible();
   await page.getByRole("link", { name: "Backups", exact: true }).click();
   await expect(
     page.getByText("VMs are derived from configured FileSets.", {
@@ -133,6 +133,10 @@ test("Settings shows live PostgreSQL persistence and collector audit", async ({
   await expect(
     database.getByText("backupcenter", { exact: true }),
   ).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Settings navigation" })
+    .getByRole("link", { name: "Audit", exact: true })
+    .click();
   await expect(
     page.getByText("snapshot.persisted", { exact: true }).first(),
   ).toBeVisible({ timeout: 20000 });

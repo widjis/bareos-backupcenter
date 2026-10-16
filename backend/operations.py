@@ -64,6 +64,51 @@ async def dispatch(gateway, operation):
         if not revision:
             await asyncio.to_thread(store.transition,operation["id"],["Prepared"],"Failed",None,"Provisioning revision is no longer available.")
             return
+        if revision["payload"].get("kind")=="lifecycle":
+            if not await asyncio.to_thread(store.actor_allowed,operation["actor"],"provision"):
+                await asyncio.to_thread(store.finish_lifecycle,operation["target"],operation["actor"],"Failed",{"message":"Administrator permission was revoked before lifecycle apply."})
+                await asyncio.to_thread(store.transition,operation["id"],["Prepared"],"Failed",None,"Administrator permission was revoked before lifecycle apply.")
+                return
+            from backend.lifecycle_target import candidate_capabilities, invoke as lifecycle_invoke
+            readiness=candidate_capabilities(gateway.values)
+            if not readiness["applyEnabled"]:
+                await asyncio.to_thread(store.finish_lifecycle,operation["target"],operation["actor"],"Failed",{"message":readiness["liveApplyBlocker"]})
+                await asyncio.to_thread(store.transition,operation["id"],["Prepared"],"Failed",None,readiness["liveApplyBlocker"])
+                return
+            try:
+                reviewed=await asyncio.to_thread(
+                    lifecycle_invoke,
+                    {
+                        "action":"review",
+                        "lifecycle_action":revision["payload"]["action"],
+                        "job_name":revision["payload"]["jobName"],
+                        "definition":revision["payload"].get("definition"),
+                    },
+                )
+                if reviewed.get("reviewDigest")!=revision["payload"]["reviewDigest"] or reviewed.get("proofRevision")!=revision["payload"]["proofRevision"]:
+                    raise ValueError("Lifecycle review changed since preparation. Review again before apply.")
+            except Exception as exc:
+                await asyncio.to_thread(store.finish_lifecycle,operation["target"],operation["actor"],"Failed",{"message":str(exc) if isinstance(exc,ValueError) else "Lifecycle review recheck failed before any write."})
+                await asyncio.to_thread(store.transition,operation["id"],["Prepared"],"Failed",None,str(exc) if isinstance(exc,ValueError) else "Lifecycle review recheck failed before any write.")
+                return
+            claimed=await asyncio.to_thread(store.transition,operation["id"],["Prepared"],"Dispatching",None,"Applying reviewed lifecycle configuration.")
+            if not claimed:return
+            try:
+                result=await asyncio.to_thread(lifecycle_invoke,{
+                    "action":revision["payload"]["action"],
+                    "job_name":revision["payload"]["jobName"],
+                    "request_id":str(operation["idempotency_key"]),
+                    "digest":revision["payload"]["reviewDigest"],
+                    "proof_revision":revision["payload"]["proofRevision"],
+                    "definition":revision["payload"].get("definition"),
+                    "actor":operation["actor"],
+                })
+                await asyncio.to_thread(store.finish_lifecycle,operation["target"],operation["actor"],"Validated",result)
+                await asyncio.to_thread(store.transition,operation["id"],["Dispatching"],"Completed",None,result.get("message") or "Lifecycle apply completed.")
+            except Exception:
+                await asyncio.to_thread(store.finish_lifecycle,operation["target"],operation["actor"],"Failed",{"message":"Lifecycle apply outcome unknown. Inspect the server receipt before retrying."})
+                await asyncio.to_thread(store.transition,operation["id"],["Dispatching"],"Unknown",None,"Lifecycle apply outcome unknown. Inspect the server receipt before retrying; this request will not be resent.")
+            return
         if not await asyncio.to_thread(store.actor_allowed,operation["actor"],"provision"):
             await asyncio.to_thread(store.finish_provisioning,operation["target"],operation["actor"],"Failed",{"message":"Administrator permission was revoked before provisioning rehearsal."})
             await asyncio.to_thread(store.transition,operation["id"],["Prepared"],"Failed",None,"Administrator permission was revoked before provisioning rehearsal.")

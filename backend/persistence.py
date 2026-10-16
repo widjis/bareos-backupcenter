@@ -176,6 +176,27 @@ class Store:
                 cur.execute("SELECT inventory_vm_id,job_name,state FROM protection_assignments WHERE connection_id=%s AND state<>'Retired'",(self.connection_id,))
                 return {str(row["inventory_vm_id"]):dict(row) for row in cur.fetchall()}
 
+    def assignment_detail(self, job_name):
+        with closing(self.connect()) as conn:
+            with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT inventory_vm_id,instance_uuid,configuration_revision_id,policy_id,policy_revision,job_name,fileset_name,pool_name,storage_name,state FROM protection_assignments WHERE connection_id=%s AND job_name=%s AND state<>'Retired' ORDER BY updated_at DESC LIMIT 2",(self.connection_id,job_name))
+                rows=[dict(row) for row in cur.fetchall()]
+                if len(rows)>1:raise ValueError("Managed job has multiple active persisted assignments.")
+                return rows[0] if rows else None
+
+    def latest_lifecycle_revision(self, job_name):
+        with closing(self.connect()) as conn:
+            with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM configuration_revisions WHERE connection_id=%s AND payload->>'kind'='lifecycle' AND payload->>'jobName'=%s ORDER BY updated_at DESC,created_at DESC LIMIT 1",(self.connection_id,job_name))
+                row=cur.fetchone()
+                return dict(row) if row else None
+
+    def lifecycle_operations(self, job_name):
+        with closing(self.connect()) as conn:
+            with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id,kind,target,state,parameters FROM operation_requests WHERE connection_id=%s AND state IN ('Prepared','Dispatching','Accepted','Running','Unknown') AND (target=%s OR parameters->>'jobName'=%s) ORDER BY created_at ASC",(self.connection_id,job_name,job_name))
+                return [dict(row) for row in cur.fetchall()]
+
 
     def actor_allowed(self, username, kind="run"):
         with closing(self.connect()) as conn:
@@ -250,6 +271,35 @@ class Store:
                 cur.execute("INSERT INTO audit_events(connection_id,actor,event_type,details) VALUES(%s,%s,'provision.revision.prepared',%s)",(self.connection_id,actor,Json({"revisionId":revision_id,"vmCount":len(rows),"policyName":plan["policy"]["name"],"simulationOnly":plan.get("mode")!="live"})))
                 return operation
 
+    def prepare_lifecycle(self, key, actor, plan):
+        from uuid import uuid4
+        with closing(self.connect()) as conn:
+            with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT enabled,role FROM app_users WHERE username=%s FOR SHARE",(actor,))
+                user=cur.fetchone()
+                if not user or not user["enabled"] or user["role"]!="Admin":raise PermissionError("Administrator permission was revoked.")
+                cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",(self.connection_id+":key:"+str(key),))
+                cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",(self.connection_id+":lifecycle:"+plan["jobName"],))
+                cur.execute("SELECT * FROM operation_requests WHERE connection_id=%s AND idempotency_key=%s",(self.connection_id,str(key)))
+                existing=cur.fetchone()
+                if existing:
+                    payload=self.provision_revision(existing["target"]) if existing["kind"]=="provision" else None
+                    if existing["actor"]!=actor or existing["kind"]!="provision" or not payload or payload["payload"].get("kind")!="lifecycle" or payload["payload"].get("action")!=plan["action"] or payload["payload"].get("jobName")!=plan["jobName"] or payload["payload"].get("proofRevision")!=plan["proofRevision"] or payload["payload"].get("reviewDigest")!=plan["reviewDigest"] or payload["payload"].get("definition")!=plan.get("definition"):
+                        raise ValueError("Request key belongs to another lifecycle intent.")
+                    return dict(existing)
+                cur.execute("SELECT id FROM operation_requests WHERE connection_id=%s AND kind='provision' AND state IN ('Prepared','Dispatching','Accepted','Running','Unknown') AND parameters->>'jobName'=%s",(self.connection_id,plan["jobName"]))
+                if cur.fetchone():raise ValueError("An unresolved lifecycle operation already exists for this job.")
+                cur.execute("INSERT INTO connections(id,name,provider) VALUES(%s,'Bareos Director','bareos') ON CONFLICT(id) DO NOTHING",(self.connection_id,))
+                revision_id=str(uuid4())
+                cur.execute("INSERT INTO configuration_revisions(id,connection_id,policy_id,policy_revision,actor,state,payload) VALUES(%s,%s,NULL,%s,%s,'Prepared',%s)",(revision_id,self.connection_id,plan["proofRevision"],actor,Json(plan)))
+                operation_id=str(uuid4())
+                parameters={"summary":plan["summary"],"jobName":plan["jobName"],"lifecycleAction":plan["action"],"proofRevision":plan["proofRevision"],"revisionId":revision_id}
+                cur.execute("INSERT INTO operation_requests(id,connection_id,idempotency_key,kind,target,state,actor,parameters) VALUES(%s,%s,%s,'provision',%s,'Prepared',%s,%s) RETURNING *",(operation_id,self.connection_id,str(key),revision_id,actor,Json(parameters)))
+                operation=dict(cur.fetchone())
+                self.operation_audit(cur,operation)
+                cur.execute("INSERT INTO audit_events(connection_id,actor,event_type,details) VALUES(%s,%s,'lifecycle.revision.prepared',%s)",(self.connection_id,actor,Json({"revisionId":revision_id,"jobName":plan["jobName"],"action":plan["action"],"proofRevision":plan["proofRevision"]})))
+                return operation
+
     def provision_revision(self, revision_id):
         with closing(self.connect()) as conn:
             with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -269,6 +319,18 @@ class Store:
                 assignment_state="Retired" if details.get("liveApplied") else "Prepared" if state=="Validated" else "Failed"
                 cur.execute("UPDATE protection_assignments SET state=%s,updated_at=now() WHERE connection_id=%s AND configuration_revision_id=%s",(assignment_state,self.connection_id,str(revision_id)))
                 cur.execute("INSERT INTO audit_events(connection_id,actor,event_type,details) VALUES(%s,%s,%s,%s)",(self.connection_id,actor,"provision.revision."+state.lower(),Json({"revisionId":str(revision_id),"simulationOnly":not bool(details.get("liveApplied")),"vmCount":len(revision["payload"].get("changes",[]))})))
+                return revision
+
+    def finish_lifecycle(self, revision_id, actor, state, details):
+        if state not in ("Validated","Failed"):raise ValueError("Unsupported lifecycle revision state.")
+        with closing(self.connect()) as conn:
+            with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM configuration_revisions WHERE connection_id=%s AND id=%s FOR UPDATE",(self.connection_id,str(revision_id)))
+                row=cur.fetchone()
+                if not row:return None
+                cur.execute("UPDATE configuration_revisions SET state=%s,payload=payload || %s,updated_at=now() WHERE connection_id=%s AND id=%s RETURNING *",(state,Json(details),self.connection_id,str(revision_id)))
+                revision=dict(cur.fetchone())
+                cur.execute("INSERT INTO audit_events(connection_id,actor,event_type,details) VALUES(%s,%s,%s,%s)",(self.connection_id,actor,"lifecycle.revision."+state.lower(),Json({"revisionId":str(revision_id),"jobName":revision["payload"].get("jobName"),"action":revision["payload"].get("action"),"state":state})))
                 return revision
 
     def save_policy(self, body, actor):
